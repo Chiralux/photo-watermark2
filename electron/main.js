@@ -95,22 +95,55 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
     const { inputPath, config } = task
     const { type, text, image, layout } = config
 
-    const img = sharp(inputPath)
-    const meta = await img.metadata()
+  // 应用 EXIF 方向，保证像素坐标与视觉方向一致
+  const img = sharp(inputPath).rotate()
+  const meta = await img.metadata()
 
     // Build overlay
-    let overlayBuffer
-    if (type === 'text') {
-      // SVG based text rendering to preserve quality and effects baseline
-      const svg = buildTextSVG(text, layout, meta.width || 1024, meta.height || 768)
-      overlayBuffer = Buffer.from(svg)
+    let overlayInput
+  if (type === 'text') {
+      // 文本水印：先将 SVG 栅格化为 PNG，再进行复合，提升兼容性
+      const W = meta.width || 1024
+      const H = meta.height || 768
+      const svg = buildTextSVG(text, layout, W, H)
+      // 直接以 SVG 覆盖，避免某些环境下 SVG->PNG 栅格化导致透明输出
+      overlayInput = Buffer.from(svg)
+      // 额外准备一个 PNG 栅格化后备，极端环境下双重叠加可提升可见性
+      try {
+        var overlayFallbackPng = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer()
+      } catch {}
     } else if (type === 'image' && image?.path) {
-      // Scale image watermark if needed; here we simply load and set opacity later via composite
-      overlayBuffer = await sharp(image.path).toBuffer()
+      // 图片水印：缩放并放置在全画布透明图层上，再与原图复合
+      const W = meta.width || 1024
+      const H = meta.height || 768
+      const wmm = await sharp(image.path).metadata()
+      const scale = Math.max(0.01, image.scale || 1)
+      const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
+      const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
+      const wmBuf = await sharp(image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
+      const pos = calcPosition(layout, W, H)
+      // 将中心定位转换为左上角，并限制在画布内
+      let left = Math.round(pos.left - ww / 2)
+      let top = Math.round(pos.top - hh / 2)
+      left = Math.max(0, Math.min(W - ww, left))
+      top = Math.max(0, Math.min(H - hh, top))
+      overlayInput = await sharp({
+        create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
+      })
+        .png()
+        .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, image.opacity ?? 0.6)) }])
+        .png()
+        .toBuffer()
     }
 
   // Composite: overlayBuffer 是整幅画布尺寸的 SVG，贴在 (0,0)
-  let pipeline = img.composite([{ input: overlayBuffer, top: 0, left: 0 }])
+  if (!overlayInput) {
+    console.warn('[export] No overlay generated for', inputPath, 'type:', type)
+  }
+  let composites = []
+  if (overlayInput) composites.push({ input: overlayInput, top: 0, left: 0 })
+  if (typeof overlayFallbackPng !== 'undefined') composites.push({ input: overlayFallbackPng, top: 0, left: 0 })
+  let pipeline = composites.length ? img.composite(composites) : img
 
     // Output
     let outputPath = buildOutputPath(inputPath, outputDir, naming, format)
@@ -119,7 +152,8 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
     } else {
       pipeline = pipeline.png()
     }
-    await pipeline.toFile(outputPath)
+  // 清除方向标记，避免查看器再次旋转
+  await pipeline.withMetadata({ orientation: 1 }).toFile(outputPath)
     results.push({ inputPath, outputPath, ok: true })
   })))
 
@@ -182,33 +216,40 @@ function calcPosition(layout, W, H) {
   switch (preset) {
     case 'tl': x = margin; y = margin; break
     case 'tc': x = Math.floor(W / 2); y = margin; break
-    case 'tr': x = W - margin; y = margin; break
+    case 'tr': x = Math.max(0, W - margin); y = margin; break
     case 'cl': x = margin; y = Math.floor(H / 2); break
     case 'center': x = Math.floor(W / 2); y = Math.floor(H / 2); break
-    case 'cr': x = W - margin; y = Math.floor(H / 2); break
-    case 'bl': x = margin; y = H - margin; break
-    case 'bc': x = Math.floor(W / 2); y = H - margin; break
-    case 'br': x = W - margin; y = H - margin; break
+    case 'cr': x = Math.max(0, W - margin); y = Math.floor(H / 2); break
+    case 'bl': x = margin; y = Math.max(0, H - margin); break
+    case 'bc': x = Math.floor(W / 2); y = Math.max(0, H - margin); break
+    case 'br': x = Math.max(0, W - margin); y = Math.max(0, H - margin); break
   }
-  const left = Math.max(0, Math.min(W, Math.round(x + (layout?.offsetX || 0))))
-  const top = Math.max(0, Math.min(H, Math.round(y + (layout?.offsetY || 0))))
+  const left = Math.max(0, Math.min(W - 1, Math.round(x + (layout?.offsetX || 0))))
+  const top = Math.max(0, Math.min(H - 1, Math.round(y + (layout?.offsetY || 0))))
   return { left, top }
 }
 
 function buildTextSVG(text, layout, W, H) {
   const content = escapeHtml(text?.content || 'Watermark')
-  const fontFamily = text?.fontFamily || 'Arial'
-  const fontSize = text?.fontSize || 32
+  const fontFamily = text?.fontFamily || 'Arial, Helvetica, sans-serif'
+  // 将预览中的字号（以预览画布像素计）按比例换算到原图像素：
+  // 预览画布固定为 480x300（见 PreviewBox），cover 缩放比例 scale = max(480/W, 300/H)
+  // 预览 1 像素 ≈ 原图 1/scale 像素，因此导出字号 = 预览字号 / scale
+  const PREVIEW_W = 480, PREVIEW_H = 300
+  const scalePreviewToImage = Math.max(PREVIEW_W / (W || PREVIEW_W), PREVIEW_H / (H || PREVIEW_H))
+  const fontSizeRaw = text?.fontSize || 32
+  const fontSize = Math.max(8, Math.round(fontSizeRaw / (scalePreviewToImage || 1)))
   const color = text?.color || '#FFFFFF'
   const opacity = Math.max(0, Math.min(1, text?.opacity ?? 0.6))
   const anchor = 'middle'
-  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: 0, offsetY: 0 }, W, H)
+  // 使用真实的偏移量，确保与预览拖拽保持一致
+  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H)
   const x = left
   const y = top
   // Basic SVG text; advanced shadow/stroke可后续扩展
   return `<?xml version="1.0" encoding="UTF-8"?>
-  <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-    <text x="${x}" y="${y}" text-anchor="${anchor}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamily}" font-size="${fontSize}">${content}</text>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="middle" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamily}" font-size="${fontSize}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
   </svg>`
 }
 
