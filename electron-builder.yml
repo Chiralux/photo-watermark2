@@ -1,0 +1,13 @@
+appId: com.example.photo-watermark2
+productName: Photo Watermark
+files:
+  - dist/**
+  - electron/**
+  - package.json
+extraResources: []
+mac:
+  target: [dmg]
+win:
+  target: [nsis]
+linux:
+  target: [AppImage]
