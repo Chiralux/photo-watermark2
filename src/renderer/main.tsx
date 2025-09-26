@@ -199,7 +199,8 @@ function PreviewBox({ template, imagePath, onChange }: { template: Template; ima
   const geom = useMemo(() => {
     const ow = imgSize?.w || W
     const oh = imgSize?.h || H
-    const scale = Math.min(W / ow, H / oh)
+    // 使用 cover 模式：填满容器，可能裁剪，避免两侧留边
+    const scale = Math.max(W / ow, H / oh)
     const dw = Math.round(ow * scale)
     const dh = Math.round(oh * scale)
     const ox = Math.round((W - dw) / 2)
@@ -243,9 +244,9 @@ function PreviewBox({ template, imagePath, onChange }: { template: Template; ima
     if (!dragging.current) return
     const dx = e.clientX - dragging.current.startX
     const dy = e.clientY - dragging.current.startY
-    // 限制在图片显示区域内拖动
-    const minX = geom.ox, maxX = geom.ox + geom.dw
-    const minY = geom.oy, maxY = geom.oy + geom.dh
+    // 限制在容器可视区域内拖动（cover 模式下图片可能超出容器边界）
+    const minX = 0, maxX = W
+    const minY = 0, maxY = H
     const nx = Math.max(minX, Math.min(maxX, Math.round(dragging.current.baseX + dx)))
     const ny = Math.max(minY, Math.min(maxY, Math.round(dragging.current.baseY + dy)))
 
