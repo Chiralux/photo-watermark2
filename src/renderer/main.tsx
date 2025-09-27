@@ -182,11 +182,45 @@ function App() {
           <button onClick={async ()=>{ if(!(window as any).api){alert('预加载未生效');return} const list = await window.api.openDirectory(); if(list?.length) appendFiles(list)}}>导入文件夹</button>
         </div>
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {files.map((f: string, i: number) => (
-            <li key={f} onClick={() => setSelected(i)} style={{ cursor: 'pointer', padding: '6px 4px', background: selected===i?'#eef':'transparent' }}>
-              {f.split(/\\/).pop()}
-            </li>
-          ))}
+          {files.map((f: string, i: number) => {
+            const fileUrl = f.startsWith('file:') ? f : ('file:///' + encodeURI(f.replace(/\\/g, '/')))
+            const name = f.split(/\\/).pop()
+            return (
+              <li
+                key={f}
+                onClick={() => setSelected(i)}
+                style={{
+                  cursor: 'pointer',
+                  padding: '6px 6px',
+                  background: selected===i?'#eef':'transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                title={f}
+              >
+                <img
+                  src={fileUrl}
+                  alt={name}
+                  width={48}
+                  height={48}
+                  loading="lazy"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 4,
+                    background: '#f3f3f3',
+                    imageOrientation: 'from-image' as any,
+                    flex: '0 0 auto',
+                  }}
+                />
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {name}
+                </span>
+              </li>
+            )
+          })}
         </ul>
 
         <h3 style={{ marginTop: 12 }}>模板</h3>
