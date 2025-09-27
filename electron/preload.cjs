@@ -15,10 +15,14 @@ contextBridge.exposeInMainWorld('api', {
     getAutoLoadConfig: () => ipcRenderer.invoke('template:getAutoLoadConfig'),
     setAutoLoadConfig: (cfg) => ipcRenderer.invoke('template:setAutoLoadConfig', cfg)
   },
+  preview: {
+    render: (payload) => ipcRenderer.invoke('preview:render', payload)
+  },
   meta: {
     getFallbackConfig: () => ipcRenderer.invoke('meta:getFallbackConfig'),
     setFallbackConfig: (cfg) => ipcRenderer.invoke('meta:setFallbackConfig', cfg)
-  }
+  },
+  previewRender: (payload) => ipcRenderer.invoke('preview:render', payload)
 })
 
 // 额外暴露拖拽路径解析 API

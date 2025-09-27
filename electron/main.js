@@ -315,7 +315,11 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
   // Output（生成唯一文件名，避免批量覆盖/并发写入冲突）
   let outputPath = uniqueOutputPath(inputPath)
     if (format === 'jpeg') {
-      pipeline = pipeline.jpeg({ quality: Math.max(1, Math.min(100, jpegQuality || 90)) })
+      // 质量值：支持 0–100（其中 0 代表最低质量，内部按 1 处理），避免 0 被当成 falsy 回退到 90
+      let q = 90
+      if (Number.isFinite(jpegQuality)) q = Number(jpegQuality)
+      q = Math.max(1, Math.min(100, Math.round(q || 0)))
+      pipeline = pipeline.jpeg({ quality: q })
     } else {
       pipeline = pipeline.png()
     }
@@ -325,6 +329,68 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
   })))
 
   return results
+})
+
+// 生成压缩预览：按与导出一致的流程合成，并按 contain 缩放到 480x300，返回 data URL
+
+// 生成压缩预览：按导出逻辑合成后，缩放到 480x300 的 contain 预览画布，并按指定 JPEG 质量编码
+ipcMain.handle('preview:render', async (_evt, payload) => {
+  try {
+    const { inputPath, config, format, jpegQuality } = payload || {}
+    const PREVIEW_W = 480, PREVIEW_H = 300
+    // 先将原图按 EXIF 方向旋正到内存，获得准确的像素尺寸
+    const baseBuf = await sharp(inputPath).rotate().toBuffer()
+    const baseMeta = await sharp(baseBuf).metadata()
+    const W = baseMeta.width || 0
+    const H = baseMeta.height || 0
+    if (!W || !H) throw new Error('invalid base dimensions')
+    // 构建覆盖层（与导出一致，包含 SVG + PNG 后备）
+    let overlayInput
+    let overlayFallbackPng
+    if (config?.type === 'text') {
+      const svg = buildTextSVG(config.text, config.layout, W, H)
+      overlayInput = Buffer.from(svg)
+      try {
+        overlayFallbackPng = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer()
+      } catch {}
+    } else if (config?.type === 'image' && config?.image?.path) {
+      const wmm = await sharp(config.image.path).metadata()
+      const scale = Math.max(0.01, config.image.scale || 1)
+      const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
+      const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
+      const wmBuf = await sharp(config.image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
+      const pos = calcPosition(config.layout, W, H)
+      let left = Math.round(pos.left - ww / 2)
+      let top = Math.round(pos.top - hh / 2)
+      left = Math.max(0, Math.min(W - ww, left))
+      top = Math.max(0, Math.min(H - hh, top))
+      overlayInput = await sharp({ create: { width: W, height: H, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+        .png()
+        .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+        .png()
+        .toBuffer()
+    }
+    // 以旋正后的 baseBuf 为底图进行复合，避免尺寸不一致
+    let composites = []
+    if (overlayInput) composites.push({ input: overlayInput, left: 0, top: 0 })
+    if (typeof overlayFallbackPng !== 'undefined') composites.push({ input: overlayFallbackPng, left: 0, top: 0 })
+    let pipeline = composites.length ? sharp(baseBuf).composite(composites) : sharp(baseBuf)
+    // 为了贴近最终效果：先按原尺寸进行一次有损 JPEG 编码（产生与最终一致的压缩伪影），
+    // 然后解码并缩放到 480x300（contain），以 PNG 无损封装返回，避免再叠加一次 JPEG 失真。
+    const q = Math.max(1, Math.min(100, Math.round(Number.isFinite(jpegQuality) ? Number(jpegQuality) : 90)))
+    const lossyJpeg = await pipeline.jpeg({ quality: q }).toBuffer()
+    const scaledPng = await sharp(lossyJpeg)
+      .resize({ width: PREVIEW_W, height: PREVIEW_H, fit: 'contain', background: { r:255, g:255, b:255, alpha:1 } })
+      .png()
+      .toBuffer()
+    const sw = PREVIEW_W
+    const sh = PREVIEW_H
+    const dataUrl = `data:image/png;base64,${scaledPng.toString('base64')}`
+    return { ok: true, url: dataUrl, width: sw, height: sh }
+  } catch (e) {
+    console.error('[preview:render] error', e)
+    return { ok: false, error: `[preview:render] ${String(e?.message || e)}` }
+  }
 })
 
 // Template management

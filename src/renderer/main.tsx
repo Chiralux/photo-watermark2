@@ -15,6 +15,7 @@ declare global {
       openDirectory: () => Promise<string[]>
       selectOutputDir: () => Promise<string>
       exportApplyWatermark: (payload: any) => Promise<any>
+      preview: { render: (payload: any) => Promise<{ ok: boolean; url?: string; dataUrl?: string; width?: number; height?: number; error?: string }> }
       templates: {
         list: () => Promise<string[]>
         load: (name: string) => Promise<Template>
@@ -39,15 +40,25 @@ function App() {
   const hasApi = () => typeof window !== 'undefined' && (window as any).api && typeof (window as any).api.openFiles === 'function'
   const [files, setFiles] = useState<string[]>([])
   const [selected, setSelected] = useState<number>(0)
+  const [currMeta, setCurrMeta] = useState<{ dateTaken?: string | null; dateSource?: string | null } | null>(null)
   const [outputDir, setOutputDir] = useState<string>('')
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
   const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ prefix: 'wm_', suffix: '_watermarked' })
+  // JPEG 质量（0-100，可选高级），仅在导出为 JPEG 时启用
+  const [jpegQuality, setJpegQuality] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem('jpegQuality')
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 90
+    } catch { return 90 }
+  })
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
   const [tplName, setTplName] = useState<string>('')
   const [tplList, setTplList] = useState<string[]>([])
   // 自动加载：'last' | 'default'，以及默认模板名
   const [autoLoad, setAutoLoad] = useState<'last' | 'default'>('last')
   const [defaultTplName, setDefaultTplName] = useState<string>('')
+  const [metaFallback, setMetaFallback] = useState<{ allowFilename: boolean; allowFileTime: boolean }>({ allowFilename: true, allowFileTime: false })
   // 导出范围：仅当前预览 or 全部
   const [exportScope, setExportScope] = useState<'current' | 'all'>(() => {
     try {
@@ -57,6 +68,14 @@ function App() {
       return 'current'
     }
   })
+
+  // 压缩实时预览：在 JPEG 模式下可选，生成与导出一致的压缩效果
+  const [enableCompressedPreview, setEnableCompressedPreview] = useState<boolean>(() => {
+    try { return localStorage.getItem('enableCompressedPreview') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('enableCompressedPreview', enableCompressedPreview ? '1' : '0') } catch {}
+  }, [enableCompressedPreview])
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
@@ -77,6 +96,12 @@ function App() {
         const names = await window.api.templates.list().catch(()=>[])
         setTplList(Array.isArray(names)? names : [])
         if (cfg.defaultName) setDefaultTplName(cfg.defaultName)
+
+        // 读取元数据回退配置
+        if ((window as any).api?.meta?.getFallbackConfig) {
+          const mf = await (window as any).api.meta.getFallbackConfig().catch(()=>null)
+          if (mf) setMetaFallback({ allowFilename: mf.allowFilename !== false, allowFileTime: mf.allowFileTime === true })
+        }
 
         // 按配置加载模板
         if (cfg.autoLoad === 'default' && cfg.defaultName) {
@@ -108,6 +133,23 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('exportScope', exportScope) } catch {}
   }, [exportScope])
+
+  // 记住 JPEG 质量
+  useEffect(() => {
+    try { localStorage.setItem('jpegQuality', String(jpegQuality)) } catch {}
+  }, [jpegQuality])
+
+  // 读取当前选中文件的元数据（拍摄时间）
+  useEffect(() => {
+    (async () => {
+      try {
+        const path = files.length ? files[Math.max(0, Math.min(selected, files.length - 1))] : ''
+        if (!path || !(window as any).imageMeta?.get) { setCurrMeta(null); return }
+        const m = await (window as any).imageMeta.get(path)
+        setCurrMeta({ dateTaken: m?.dateTaken ?? null, dateSource: m?.dateSource ?? null })
+      } catch { setCurrMeta(null) }
+    })()
+  }, [files, selected])
 
   // 工具函数：把新文件“追加”到现有列表（不覆盖），并去重（不区分大小写）；
   // 行为：若有新增，自动选中新增的第一张，便于快速预览。
@@ -158,7 +200,7 @@ function App() {
     const idx = Math.max(0, Math.min(selected, files.length - 1))
     const chosen = exportScope === 'current' ? [files[idx]] : files
     const tasks = chosen.map(f => ({ inputPath: f, config: tpl }))
-    const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality: 90 })
+    const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality })
     alert(`导出完成：${res?.length || 0} 张`)
   }
 
@@ -244,6 +286,25 @@ function App() {
             }}>保存</button>
           </div>
         </div>
+        <div style={{ marginBottom: 8, padding: 8, border: '1px solid #eee', borderRadius: 6, background: '#fafafa' }}>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>拍摄时间回退</div>
+          <label style={{ display: 'block', marginBottom: 6 }}>
+            <input type="checkbox" checked={metaFallback.allowFilename} onChange={async (e:any)=>{
+              const next = { ...metaFallback, allowFilename: !!e.target.checked }
+              setMetaFallback(next)
+              try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+            }} />
+            允许从文件名推断时间（如 20250113_141523）
+          </label>
+          <label style={{ display: 'block' }}>
+            <input type="checkbox" checked={metaFallback.allowFileTime} onChange={async (e:any)=>{
+              const next = { ...metaFallback, allowFileTime: !!e.target.checked }
+              setMetaFallback(next)
+              try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+            }} />
+            允许用文件修改时间作为兜底（可能不是拍摄时间）
+          </label>
+        </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <input placeholder="输入模板名" value={tplName} onChange={(e:any)=>setTplName(e.target.value)} style={{ flex: 1 }} />
           <button onClick={async ()=>{
@@ -293,7 +354,11 @@ function App() {
       <main style={{ flex: 1, display: 'flex' }}>
         <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f7f7' }}>
           {files.length ? (
-            <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors} />
+            enableCompressedPreview && format==='jpeg' ? (
+              <CompressedPreview template={tpl} imagePath={files[selected]} jpegQuality={jpegQuality} />
+            ) : (
+              <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors} />
+            )
           ) : (
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
           )}
@@ -312,7 +377,17 @@ function App() {
           {tpl.type === 'text' && (
             <div style={{ marginTop: 8 }}>
               <div>内容</div>
-              <textarea value={tpl.text?.content || ''} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, content: e.target.value } })} rows={3} style={{ width: '100%' }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                <textarea value={tpl.text?.content || ''} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, content: e.target.value } })} rows={3} style={{ width: '100%' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button disabled={!currMeta?.dateTaken} title={currMeta?.dateTaken || '未检索到时间信息'} onClick={() => {
+                    const dt = currMeta?.dateTaken
+                    if (!dt) return
+                    setTpl(prev => ({ ...prev, text: { ...prev.text!, content: dt } }))
+                  }}>使用拍摄时间</button>
+                </div>
+              </div>
+              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>拍摄时间：{currMeta?.dateTaken || '未读取'}{currMeta?.dateTaken ? (currMeta?.dateSource ? `（来源：${currMeta.dateSource}）` : '') : ''}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <label>字号 <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} style={{ width: 80 }} /></label>
                 <label>不透明度 <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} style={{ width: 80 }} /></label>
@@ -358,6 +433,23 @@ function App() {
             <label><input type="radio" checked={format==='png'} onChange={() => setFormat('png')} /> PNG</label>
             <label><input type="radio" checked={format==='jpeg'} onChange={() => setFormat('jpeg')} /> JPEG</label>
           </div>
+          {format === 'jpeg' && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>JPEG 质量</span>
+                <input type="number" min={0} max={100} value={jpegQuality}
+                  onChange={(e:any)=> setJpegQuality(Math.max(0, Math.min(100, Number(e.target.value)||0)))}
+                  style={{ width: 72 }} />
+              </div>
+              <input type="range" min={0} max={100} step={1} value={jpegQuality}
+                onChange={(e:any)=> setJpegQuality(Number(e.target.value)||0)}
+                style={{ width: '100%' }} />
+              <label style={{ display: 'block', marginTop: 6 }}>
+                <input type="checkbox" checked={enableCompressedPreview} onChange={(e:any)=> setEnableCompressedPreview(!!e.target.checked)} />
+                压缩实时预览（在预览中模拟 JPEG 质量效果）
+              </label>
+            </div>
+          )}
           <div style={{ marginTop: 8 }}>
             <div>导出范围</div>
             <label>
@@ -546,6 +638,41 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { templ
           })()}
         </>
       )}
+    </div>
+  )
+}
+
+function CompressedPreview({ template, imagePath, jpegQuality }: { template: Template; imagePath: string; jpegQuality: number }) {
+  const W = 480, H = 300
+  const [url, setUrl] = useState<string>('')
+  const [loading, setLoading] = useState<boolean>(false)
+  const [err, setErr] = useState<string>('')
+
+  useEffect(() => {
+    let stop = false
+    const timer = setTimeout(async () => {
+      const api = (window as any).api
+      if (!imagePath || !api?.preview?.render) { setUrl(''); return }
+      setLoading(true); setErr('')
+      try {
+        const res = await api.preview.render({ inputPath: imagePath, config: template, format: 'jpeg', jpegQuality })
+        if (!stop) {
+          const u = res?.url || res?.dataUrl || ''
+          if (res?.ok && u) setUrl(u)
+          else { setUrl(''); setErr(res?.error || '预览失败') }
+        }
+      } catch (e:any) {
+        if (!stop) { setUrl(''); setErr(String(e?.message || e)) }
+      } finally {
+        if (!stop) setLoading(false)
+      }
+    }, 200)
+    return () => { stop = true; clearTimeout(timer) }
+  }, [imagePath, template, jpegQuality])
+
+  return (
+    <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      {loading ? <div style={{ color: '#888' }}>生成预览中…</div> : (url ? <img src={url} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <div style={{ color: '#888' }}>{err || '无预览'}</div>)}
     </div>
   )
 }
