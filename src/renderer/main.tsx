@@ -81,6 +81,7 @@ function App() {
   const [tplName, setTplName] = useState<string>('')
   const [tplList, setTplList] = useState<string[]>([])
   const [fontList, setFontList] = useState<string[]>([])
+  const [fontQuery, setFontQuery] = useState<string>('')
   const [fontAvailable, setFontAvailable] = useState<boolean>(true)
   const commonFonts = useMemo(() => (
     [
@@ -97,6 +98,18 @@ function App() {
   }, [fontList, commonFonts])
   const fontListCommon = useMemo(() => fontListPrioritized.filter(f => commonFonts.includes(f)), [fontListPrioritized, commonFonts])
   const fontListOthers = useMemo(() => fontListPrioritized.filter(f => !commonFonts.includes(f)), [fontListPrioritized, commonFonts])
+  const fontFilter = useMemo(() => fontQuery.trim().toLowerCase(), [fontQuery])
+  const fontListCommonFiltered = useMemo(() => (
+    fontFilter ? fontListCommon.filter(f => f.toLowerCase().includes(fontFilter)) : fontListCommon
+  ), [fontListCommon, fontFilter])
+  const fontListOthersFiltered = useMemo(() => (
+    fontFilter ? fontListOthers.filter(f => f.toLowerCase().includes(fontFilter)) : fontListOthers
+  ), [fontListOthers, fontFilter])
+  const filteredFontsMerged = useMemo(() => {
+    const seen = new Set<string>()
+    const merged = [...fontListCommonFiltered, ...fontListOthersFiltered]
+    return merged.filter(f => { if (seen.has(f)) return false; seen.add(f); return true })
+  }, [fontListCommonFiltered, fontListOthersFiltered])
   // 自动加载：'last' | 'default'，以及默认模板名
   const [autoLoad, setAutoLoad] = useState<'last' | 'default'>('last')
   const [defaultTplName, setDefaultTplName] = useState<string>('')
@@ -468,27 +481,66 @@ function App() {
                 </div>
               </div>
               <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>拍摄时间：{currMeta?.dateTaken || '未读取'}{currMeta?.dateTaken ? (currMeta?.dateSource ? `（来源：${currMeta.dateSource}）` : '') : ''}</div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                 <label>字体
                   <select value={tpl.text?.fontFamily || ''} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: e.target.value } })} style={{ maxWidth: 220, marginLeft: 6 }}>
                     <option value="">系统默认</option>
-                    {fontListCommon.length>0 && (
+                    {fontListCommonFiltered.length>0 && (
                       <optgroup label="常用">
-                        {fontListCommon.map(f => <option key={f} value={f}>{f}</option>)}
+                        {fontListCommonFiltered.map(f => <option key={f} value={f}>{f}</option>)}
                       </optgroup>
                     )}
-                    {fontListOthers.length>0 && (
+                    {fontListOthersFiltered.length>0 && (
                       <optgroup label="其它">
-                        {fontListOthers.map(f => <option key={f} value={f}>{f}</option>)}
+                        {fontListOthersFiltered.map(f => <option key={f} value={f}>{f}</option>)}
                       </optgroup>
+                    )}
+                    {(fontListCommonFiltered.length===0 && fontListOthersFiltered.length===0) && (
+                      <option value="" disabled>未匹配到字体</option>
                     )}
                   </select>
                 </label>
+                <input
+                  type="text"
+                  placeholder="搜索字体..."
+                  value={fontQuery}
+                  onChange={(e:any)=> setFontQuery(e.target.value)}
+                  style={{ flex: 1, minWidth: 100 }}
+                />
                 {!!tpl.text?.fontFamily && (
                   <span style={{ color: fontAvailable? '#2a7' : '#d77', fontSize: 12 }}>
                     {fontAvailable ? '已加载' : '未检测到该字体（可能回退默认）'}
                   </span>
                 )}
+              </div>
+              {fontFilter && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ color:'#666', fontSize: 12, marginBottom: 4 }}>匹配 {filteredFontsMerged.length} 项</div>
+                  <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid #eee', borderRadius: 4, background: '#fff' }}>
+                    {filteredFontsMerged.slice(0, 50).map(f => (
+                      <div
+                        key={f}
+                        onMouseDown={(e)=> e.preventDefault()}
+                        onClick={() => setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: f } })}
+                        style={{ padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f4f4f4' }}
+                        title={`点击应用：${f}`}
+                      >
+                        <span style={{ fontFamily: wrapFontFamily(f), fontSize: 14 }}>{f}</span>
+                        <span style={{ fontFamily: wrapFontFamily(f), color: '#555', marginLeft: 12 }}>
+                          {(tpl.text?.content || 'Aa汉字123').slice(0, 12)}
+                        </span>
+                      </div>
+                    ))}
+                    {filteredFontsMerged.length > 50 && (
+                      <div style={{ color:'#999', fontSize: 12, padding: '6px 8px' }}>已显示前 50 项，继续输入以缩小范围</div>
+                    )}
+                    {filteredFontsMerged.length === 0 && (
+                      <div style={{ color:'#999', fontSize: 12, padding: '6px 8px' }}>未匹配到字体</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                 <label>字号 <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} style={{ width: 80 }} /></label>
                 <label>粗体
                   <input type="checkbox" checked={(tpl.text?.fontWeight||'normal')!=='normal'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontWeight: e.target.checked ? 'bold' : 'normal' } })} style={{ marginLeft: 6 }} />
