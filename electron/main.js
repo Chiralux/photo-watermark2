@@ -212,7 +212,9 @@ function buildOutputPath(inputPath, outputDir, naming, format) {
   const ext = format === 'jpeg' ? '.jpg' : '.png'
   const nameNoExt = base.replace(/\.[^.]+$/, '')
   let name = nameNoExt
-  if (naming?.prefix) name = `${naming.prefix}${name}`
+  // 当 prefix 为 undefined/null 时使用默认 'wm_'；若为 '' 空字符串则不加前缀
+  const prefix = (naming && (naming.prefix !== undefined && naming.prefix !== null)) ? naming.prefix : 'wm_'
+  if (prefix) name = `${prefix}${name}`
   if (naming?.suffix) name = `${name}${naming.suffix}`
   return path.join(outputDir, `${name}${ext}`)
 }

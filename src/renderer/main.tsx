@@ -38,7 +38,7 @@ function App() {
   const [selected, setSelected] = useState<number>(0)
   const [outputDir, setOutputDir] = useState<string>('')
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
-  const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ suffix: '_watermarked' })
+  const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ prefix: 'wm_', suffix: '_watermarked' })
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
 
   const [tpl, setTpl] = useState<Template>({
