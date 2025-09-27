@@ -65,10 +65,33 @@ function App() {
     return () => clearTimeout(id)
   }, [tpl])
 
+  // 工具函数：把新文件“追加”到现有列表（不覆盖），并去重（不区分大小写）；
+  // 行为：若有新增，自动选中新增的第一张，便于快速预览。
+  const appendFiles = (incoming: string[]) => {
+    if (!incoming?.length) return
+    setFiles(prev => {
+      const oldLen = prev.length
+      const seen = new Set(prev.map(p => p.toLowerCase()))
+      const toAdd = incoming.filter(p => {
+        const key = p.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      if (toAdd.length) {
+        // 选中新追加的第一张
+        setSelected(oldLen)
+        return [...prev, ...toAdd]
+      }
+      return prev
+    })
+  }
+
+  // 通过文件对话框导入：采用“追加不覆盖”的策略
   const onImport = async () => {
     if (!hasApi()) { alert('预加载未生效：无法访问系统文件对话框。请重启应用或联系开发者。'); return }
     const paths = await window.api.openFiles()
-    if (paths?.length) setFiles(paths)
+    if (paths?.length) appendFiles(paths)
   }
 
   const onSelectOutput = async () => {
@@ -94,12 +117,13 @@ function App() {
   }
 
   // 拖拽导入处理
+  // 拖拽导入：同样“追加不覆盖”，并自动选中新追加的首张
   const handleDrop = async (e: any) => {
     e.preventDefault(); e.stopPropagation()
     const files = Array.from(e.dataTransfer?.files || []) as any[]
     const paths = files.map(f => f.path).filter(Boolean)
     const list = (window as any).dragIngest ? await (window as any).dragIngest.ingest(paths) : []
-    if (list?.length) setFiles(list)
+    if (list?.length) appendFiles(list)
   }
   const handleDragOver = (e: any) => { e.preventDefault() }
 
@@ -109,7 +133,7 @@ function App() {
         <h3>文件</h3>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onImport}>导入图片</button>
-          <button onClick={async ()=>{ if(!(window as any).api){alert('预加载未生效');return} const list = await window.api.openDirectory(); if(list?.length) setFiles(list)}}>导入文件夹</button>
+          <button onClick={async ()=>{ if(!(window as any).api){alert('预加载未生效');return} const list = await window.api.openDirectory(); if(list?.length) appendFiles(list)}}>导入文件夹</button>
         </div>
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {files.map((f: string, i: number) => (
