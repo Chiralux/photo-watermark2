@@ -43,6 +43,10 @@ function App() {
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
   const [tplName, setTplName] = useState<string>('')
   const [tplList, setTplList] = useState<string[]>([])
+  // 导出范围：仅当前预览 or 全部
+  const [exportScope, setExportScope] = useState<'current' | 'all'>(() => {
+    try { const v = localStorage.getItem('exportScope'); return (v === 'current' || v === 'all') ? (v as any) : 'all' } catch { return 'all' }
+  })
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
@@ -70,6 +74,11 @@ function App() {
     }, 200)
     return () => clearTimeout(id)
   }, [tpl])
+
+  // 记住导出范围选择
+  useEffect(() => {
+    try { localStorage.setItem('exportScope', exportScope) } catch {}
+  }, [exportScope])
 
   // 工具函数：把新文件“追加”到现有列表（不覆盖），并去重（不区分大小写）；
   // 行为：若有新增，自动选中新增的第一张，便于快速预览。
@@ -116,8 +125,10 @@ function App() {
       const ok = confirm('输出目录与源目录相同，可能覆盖原图，是否继续？')
       if (!ok) return
     }
-
-    const tasks = files.map(f => ({ inputPath: f, config: tpl }))
+    // 根据导出范围构建任务
+    const idx = Math.max(0, Math.min(selected, files.length - 1))
+    const chosen = exportScope === 'current' ? [files[idx]] : files
+    const tasks = chosen.map(f => ({ inputPath: f, config: tpl }))
     const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality: 90 })
     alert(`导出完成：${res?.length || 0} 张`)
   }
@@ -264,6 +275,15 @@ function App() {
           <div style={{ display: 'flex', gap: 8 }}>
             <label><input type="radio" checked={format==='png'} onChange={() => setFormat('png')} /> PNG</label>
             <label><input type="radio" checked={format==='jpeg'} onChange={() => setFormat('jpeg')} /> JPEG</label>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div>导出范围</div>
+            <label>
+              <input type="radio" name="exportScope" checked={exportScope==='current'} onChange={() => setExportScope('current')} /> 仅当前预览
+            </label>
+            <label style={{ marginLeft: 12 }}>
+              <input type="radio" name="exportScope" checked={exportScope==='all'} onChange={() => setExportScope('all')} /> 列表全部
+            </label>
           </div>
           <div style={{ marginTop: 8 }}>
             <label>前缀 <input value={naming.prefix || ''} onChange={(e: any) => setNaming({ ...naming, prefix: e.target.value })} /></label>
