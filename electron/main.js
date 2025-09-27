@@ -190,7 +190,10 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
 ipcMain.handle('template:list', async () => {
   const dir = getTemplatesDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  const names = readdirSync(dir).filter(n => n.endsWith('.json') && n !== '_last.json').map(n => n.replace(/\.json$/, ''))
+  const reserved = new Set(['_last.json', '_config.json'])
+  const names = readdirSync(dir)
+    .filter(n => n.endsWith('.json') && !reserved.has(n))
+    .map(n => n.replace(/\.json$/, ''))
   return names
 })
 
@@ -212,7 +215,10 @@ ipcMain.handle('template:save', async (_evt, { name, data }) => {
 ipcMain.handle('template:delete', async (_evt, name) => {
   try {
     const dir = getTemplatesDir()
-    const p = path.join(dir, `${sanitize(name)}.json`)
+    const s = sanitize(name)
+    // 保护保留名称不被删除
+    if (s === '_last' || s === '_config') return false
+    const p = path.join(dir, `${s}.json`)
     await fsp.unlink(p)
     return true
   } catch {
