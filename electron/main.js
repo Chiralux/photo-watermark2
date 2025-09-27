@@ -47,6 +47,16 @@ app.on('window-all-closed', function () {
 })
 
 // Minimal IPC handlers
+ipcMain.handle('image:getMetadata', async (_evt, inputPath) => {
+  try {
+    const meta = await sharp(inputPath).metadata()
+    const { width, height } = meta
+    const oriented = getOrientedSize(meta)
+    return { width: width || 0, height: height || 0, orientation: meta.orientation || 1, orientedWidth: oriented.width, orientedHeight: oriented.height }
+  } catch (e) {
+    return { width: 0, height: 0, orientation: 1, orientedWidth: 0, orientedHeight: 0 }
+  }
+})
 ipcMain.handle('dialog:openFiles', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     title: '选择图片或文件夹',
@@ -95,16 +105,16 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
     const { inputPath, config } = task
     const { type, text, image, layout } = config
 
+  // 读取原始元数据，计算“应用 EXIF 后”的目标宽高，用于定位与叠加
+  const srcMeta = await sharp(inputPath).metadata()
+  const { width: W, height: H } = getOrientedSize(srcMeta)
   // 应用 EXIF 方向，保证像素坐标与视觉方向一致
   const img = sharp(inputPath).rotate()
-  const meta = await img.metadata()
 
     // Build overlay
     let overlayInput
-  if (type === 'text') {
+    if (type === 'text') {
       // 文本水印：先将 SVG 栅格化为 PNG，再进行复合，提升兼容性
-      const W = meta.width || 1024
-      const H = meta.height || 768
       const svg = buildTextSVG(text, layout, W, H)
       // 直接以 SVG 覆盖，避免某些环境下 SVG->PNG 栅格化导致透明输出
       overlayInput = Buffer.from(svg)
@@ -114,8 +124,6 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
       } catch {}
     } else if (type === 'image' && image?.path) {
       // 图片水印：缩放并放置在全画布透明图层上，再与原图复合
-      const W = meta.width || 1024
-      const H = meta.height || 768
       const wmm = await sharp(image.path).metadata()
       const scale = Math.max(0.01, image.scale || 1)
       const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
@@ -233,23 +241,57 @@ function buildTextSVG(text, layout, W, H) {
   const content = escapeHtml(text?.content || 'Watermark')
   const fontFamily = text?.fontFamily || 'Arial, Helvetica, sans-serif'
   // 将预览中的字号（以预览画布像素计）按比例换算到原图像素：
-  // 预览画布固定为 480x300（见 PreviewBox），cover 缩放比例 scale = max(480/W, 300/H)
+  // 预览画布固定为 480x300（见 PreviewBox），使用 contain 缩放：scale = min(480/W, 300/H)
   // 预览 1 像素 ≈ 原图 1/scale 像素，因此导出字号 = 预览字号 / scale
   const PREVIEW_W = 480, PREVIEW_H = 300
-  const scalePreviewToImage = Math.max(PREVIEW_W / (W || PREVIEW_W), PREVIEW_H / (H || PREVIEW_H))
+  const scalePreviewToImage = Math.min(PREVIEW_W / (W || PREVIEW_W), PREVIEW_H / (H || PREVIEW_H))
   const fontSizeRaw = text?.fontSize || 32
-  const fontSize = Math.max(8, Math.round(fontSizeRaw / (scalePreviewToImage || 1)))
+  const fontSize = Math.max(8, (fontSizeRaw / (scalePreviewToImage || 1)))
   const color = text?.color || '#FFFFFF'
   const opacity = Math.max(0, Math.min(1, text?.opacity ?? 0.6))
-  const anchor = 'middle'
+  // 根据九宫格预设决定 SVG 文本的锚点与基线，和预览端保持一致
+  function getSvgAnchors(preset) {
+    switch (preset) {
+      case 'tl': return { anchor: 'start', baseline: 'text-before-edge', vAlign: 'top' }
+      case 'tc': return { anchor: 'middle', baseline: 'text-before-edge', vAlign: 'top' }
+      case 'tr': return { anchor: 'end',   baseline: 'text-before-edge', vAlign: 'top' }
+      case 'cl': return { anchor: 'start', baseline: 'middle', vAlign: 'middle' }
+      case 'center': return { anchor: 'middle', baseline: 'middle', vAlign: 'middle' }
+      case 'cr': return { anchor: 'end',   baseline: 'middle', vAlign: 'middle' }
+      case 'bl': return { anchor: 'start', baseline: 'text-after-edge', vAlign: 'bottom' }
+      case 'bc': return { anchor: 'middle', baseline: 'text-after-edge', vAlign: 'bottom' }
+      case 'br': return { anchor: 'end',   baseline: 'text-after-edge', vAlign: 'bottom' }
+      default: return { anchor: 'middle', baseline: 'middle', vAlign: 'middle' }
+    }
+  }
+  const { anchor, baseline, vAlign } = getSvgAnchors(layout?.preset)
   // 使用真实的偏移量，确保与预览拖拽保持一致
   const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H)
   const x = left
-  const y = top
+  let y = top
+    // 为不同垂直对齐做补偿：许多 SVG 渲染器（如 librsvg）会忽略 dominant-baseline，
+    // 这里使用 dy 近似补偿到与预览一致的视觉效果。
+    // 经验值：ascent≈0.8em，descent≈0.2em，中线≈+0.40em（向下为正）。
+    let dyPx = 0
+    if (vAlign === 'top') {
+      dyPx = Math.round(fontSize * 0.8) // 顶部锚点补偿
+    } else if (vAlign === 'middle') {
+      dyPx = fontSize * 0.40 // 中心对齐更贴近浏览器渲染的视觉中心
+    } else if (vAlign === 'bottom') {
+      dyPx = -Math.round(fontSize * 0.2) // 底部锚点补偿
+    }
+    // 叠加来自 UI 的“基线微调”（预览像素），需要换算到原图像素
+    const baselineAdjustPreviewPx = Number(text?.baselineAdjust || 0)
+    if (baselineAdjustPreviewPx) {
+      const baselineAdjustImagePx = baselineAdjustPreviewPx / (scalePreviewToImage || 1)
+      dyPx += baselineAdjustImagePx
+    }
+    // 为提升兼容性，避免使用 dy 属性（部分渲染器处理不一致），改为直接叠加到 y 坐标
+    y = y + dyPx
   // Basic SVG text; advanced shadow/stroke可后续扩展
   return `<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="middle" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamily}" font-size="${fontSize}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
+      <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamily}" font-size="${fontSize}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
   </svg>`
 }
 
@@ -297,4 +339,14 @@ function getTemplatesDir() {
 
 function sanitize(name='template') {
   return String(name).replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 64) || 'template'
+}
+
+// 依据 EXIF orientation 计算“旋转后”的宽高，确保定位使用的是与预览一致的方向空间
+function getOrientedSize(meta) {
+  const w = meta?.width || 1024
+  const h = meta?.height || 768
+  const ori = meta?.orientation
+  // 1,2,3,4 不交换宽高；5,6,7,8 交换宽高
+  if ([5,6,7,8].includes(ori)) return { width: h, height: w }
+  return { width: w, height: h }
 }

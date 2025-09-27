@@ -18,3 +18,8 @@ contextBridge.exposeInMainWorld('api', {
 contextBridge.exposeInMainWorld('dragIngest', {
   ingest: (paths) => ipcRenderer.invoke('ingest:paths', paths)
 })
+
+// 提供读取图片元信息（含 EXIF 方向影响后的宽高）的方法
+contextBridge.exposeInMainWorld('imageMeta', {
+  get: (path) => ipcRenderer.invoke('image:getMetadata', path)
+})

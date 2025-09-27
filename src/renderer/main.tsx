@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 type Template = {
   type: 'text' | 'image'
-  text?: { content: string; fontFamily?: string; fontSize?: number; opacity?: number; color?: string }
+  text?: { content: string; fontFamily?: string; fontSize?: number; opacity?: number; color?: string; baselineAdjust?: number }
   image?: { path: string; opacity?: number; scale?: number }
   layout: { preset: string; offsetX?: number; offsetY?: number }
 }
@@ -39,10 +39,11 @@ function App() {
   const [outputDir, setOutputDir] = useState<string>('')
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
   const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ suffix: '_watermarked' })
+  const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
-    text: { content: '© MyBrand', fontFamily: 'Arial', fontSize: 32, opacity: 0.6, color: '#FFFFFF' },
+    text: { content: '© MyBrand', fontFamily: 'Arial', fontSize: 32, opacity: 0.6, color: '#FFFFFF', baselineAdjust: 0 },
     layout: { preset: 'center', offsetX: 0, offsetY: 0 },
   })
 
@@ -122,7 +123,7 @@ function App() {
       <main style={{ flex: 1, display: 'flex' }}>
         <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f7f7' }}>
           {files.length ? (
-            <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} />
+            <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors} />
           ) : (
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
           )}
@@ -130,6 +131,9 @@ function App() {
         <section style={{ width: 320, borderLeft: '1px solid #eee', padding: 12, overflow: 'auto' }}>
           <h3>水印</h3>
           <div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+              <input type="checkbox" checked={showDebugAnchors} onChange={(e: any) => setShowDebugAnchors(!!e.target.checked)} /> 显示调试锚点
+            </label>
             <label>
               <input type="radio" name="wmtype" checked={tpl.type==='text'} onChange={() => setTpl({ ...tpl, type: 'text' })} /> 文本
             </label>
@@ -145,6 +149,20 @@ function App() {
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <label>字号 <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} style={{ width: 80 }} /></label>
                 <label>不透明度 <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} style={{ width: 80 }} /></label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  基线微调(px)
+                  <span
+                    style={{ display: 'inline-block', width: 16, height: 16, lineHeight: '16px', borderRadius: 8, background: '#e6f0ff', color: '#245', textAlign: 'center', cursor: 'default', fontSize: 12 }}
+                    title={
+                      '只影响导出图像的文字垂直位置，不改变预览位置。\n' +
+                      '用途：当你发现导出的水印比预览略高/略低时，用它来做像素级校准。\n' +
+                      '正数：导出向下移动；负数：导出向上移动。\n' +
+                      '单位：预览像素（会自动按图片尺寸换算成原图像素）。'
+                    }
+                  >?
+                  </span>
+                  <input type="number" step={1} value={tpl.text?.baselineAdjust ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjust: Number(e.target.value) } })} style={{ width: 100 }} />
+                </label>
               </div>
               <label style={{ display: 'block', marginTop: 8 }}>颜色 <input type="color" value={tpl.text?.color || '#ffffff'} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, color: e.target.value } })} /></label>
             </div>
@@ -154,12 +172,17 @@ function App() {
             <div>九宫格</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
               {presets.map(p => (
-                <button key={p.key} onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, preset: p.key } })} style={{ padding: 8, background: tpl.layout.preset===p.key?'#cde':'#fafafa' }}>{p.label}</button>
+                <button
+                  key={p.key}
+                  onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, preset: p.key, offsetX: 0, offsetY: 0 } })}
+                  style={{ padding: 8, background: tpl.layout.preset===p.key?'#cde':'#fafafa' }}
+                >{p.label}</button>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <label>X偏移 <input type="number" value={tpl.layout.offsetX || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: Number(e.target.value) } })} style={{ width: 80 }} /></label>
               <label>Y偏移 <input type="number" value={tpl.layout.offsetY || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetY: Number(e.target.value) } })} style={{ width: 80 }} /></label>
+              <button onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: 0, offsetY: 0 } })}>重置偏移</button>
             </div>
           </div>
 
@@ -185,9 +208,10 @@ function App() {
   )
 }
 
-function PreviewBox({ template, imagePath, onChange }: { template: Template; imagePath?: string; onChange: (layout: Template['layout']) => void }) {
+function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { template: Template; imagePath?: string; onChange: (layout: Template['layout']) => void; showDebugAnchors?: boolean }) {
   const W = 480, H = 300, margin = 16
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
+  const [orientedSize, setOrientedSize] = useState<{ w: number; h: number } | null>(null)
 
   const fileUrl = useMemo(() => {
     if (!imagePath) return ''
@@ -197,44 +221,61 @@ function PreviewBox({ template, imagePath, onChange }: { template: Template; ima
   }, [imagePath])
 
   const geom = useMemo(() => {
-    const ow = imgSize?.w || W
-    const oh = imgSize?.h || H
-    // 使用 cover 模式：填满容器，可能裁剪，避免两侧留边
-    const scale = Math.max(W / ow, H / oh)
+    // 优先使用经 EXIF 方向修正后的尺寸，确保与浏览器显示一致
+    const ow = orientedSize?.w || imgSize?.w || W
+    const oh = orientedSize?.h || imgSize?.h || H
+    // 使用 contain 模式：完整显示整张图片
+    const scale = Math.min(W / ow, H / oh)
     const dw = Math.round(ow * scale)
     const dh = Math.round(oh * scale)
     const ox = Math.round((W - dw) / 2)
     const oy = Math.round((H - dh) / 2)
 
-    // 计算原图坐标系中的基准锚点
-    function baseAnchor(preset: string) {
-      let x0 = Math.floor(ow / 2), y0 = Math.floor(oh / 2)
+    // 与导出端一致的九宫格定位（返回中心点，且做边界夹取）
+    function calcPosition(preset: string, offsetX = 0, offsetY = 0) {
+      let x = Math.floor(ow / 2), y = Math.floor(oh / 2)
       switch (preset) {
-        case 'tl': x0 = margin; y0 = margin; break
-        case 'tc': x0 = Math.floor(ow / 2); y0 = margin; break
-        case 'tr': x0 = ow - margin; y0 = margin; break
-        case 'cl': x0 = margin; y0 = Math.floor(oh / 2); break
-        case 'center': x0 = Math.floor(ow / 2); y0 = Math.floor(oh / 2); break
-        case 'cr': x0 = ow - margin; y0 = Math.floor(oh / 2); break
-        case 'bl': x0 = margin; y0 = oh - margin; break
-        case 'bc': x0 = Math.floor(ow / 2); y0 = oh - margin; break
-        case 'br': x0 = ow - margin; y0 = oh - margin; break
+        case 'tl': x = margin; y = margin; break
+        case 'tc': x = Math.floor(ow / 2); y = margin; break
+        case 'tr': x = Math.max(0, ow - margin); y = margin; break
+        case 'cl': x = margin; y = Math.floor(oh / 2); break
+        case 'center': x = Math.floor(ow / 2); y = Math.floor(oh / 2); break
+        case 'cr': x = Math.max(0, ow - margin); y = Math.floor(oh / 2); break
+        case 'bl': x = margin; y = Math.max(0, oh - margin); break
+        case 'bc': x = Math.floor(ow / 2); y = Math.max(0, oh - margin); break
+        case 'br': x = Math.max(0, ow - margin); y = Math.max(0, oh - margin); break
       }
-      return { x0, y0 }
+      const left = Math.max(0, Math.min(ow - 1, Math.round(x + (offsetX || 0))))
+      const top  = Math.max(0, Math.min(oh - 1, Math.round(y + (offsetY || 0))))
+      return { left, top }
     }
 
-    const { x0, y0 } = baseAnchor(template.layout.preset)
-    const oxp = template.layout.offsetX || 0
-    const oyp = template.layout.offsetY || 0
-    const xOrig = x0 + oxp
-    const yOrig = y0 + oyp
-    const xDisp = ox + Math.round(xOrig * scale)
-    const yDisp = oy + Math.round(yOrig * scale)
+    const pos = calcPosition(template.layout.preset, template.layout.offsetX || 0, template.layout.offsetY || 0)
+    const xDisp = ox + Math.round(pos.left * scale)
+    const yDisp = oy + Math.round(pos.top * scale)
 
-    return { ow, oh, scale, dw, dh, ox, oy, xDisp, yDisp, baseAnchor }
-  }, [imgSize, template])
+    return { ow, oh, scale, dw, dh, ox, oy, xDisp, yDisp, calcPosition }
+  }, [imgSize, orientedSize, template])
 
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+
+  // 若历史模板中包含过大的偏移，这里自动按当前图片尺寸与预设可达范围夹取，避免被位置夹回边缘造成“看似错位”
+  useEffect(() => {
+    if (!geom || !template?.layout) return
+    const base = geom.calcPosition(template.layout.preset, 0, 0)
+    const minOffsetX = -base.left
+    const maxOffsetX = (geom.ow - 1) - base.left
+    const minOffsetY = -base.top
+    const maxOffsetY = (geom.oh - 1) - base.top
+    const curX = template.layout.offsetX || 0
+    const curY = template.layout.offsetY || 0
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+    const nx = clamp(curX, minOffsetX, maxOffsetX)
+    const ny = clamp(curY, minOffsetY, maxOffsetY)
+    if (nx !== curX || ny !== curY) {
+      onChange({ ...template.layout, offsetX: nx, offsetY: ny })
+    }
+  }, [geom.ow, geom.oh, template.layout.preset])
 
   function handleDown(e: any) {
     dragging.current = { startX: e.clientX, startY: e.clientY, baseX: geom.xDisp, baseY: geom.yDisp }
@@ -253,9 +294,10 @@ function PreviewBox({ template, imagePath, onChange }: { template: Template; ima
     // 反推到原图坐标
     const xOrig = (nx - geom.ox) / geom.scale
     const yOrig = (ny - geom.oy) / geom.scale
-    const { x0, y0 } = geom.baseAnchor(template.layout.preset)
-    const offsetX = Math.round(xOrig - x0)
-    const offsetY = Math.round(yOrig - y0)
+    // 基准点：当前预设下、offset=0 的中心
+    const base = geom.calcPosition(template.layout.preset, 0, 0)
+    const offsetX = Math.round(xOrig - base.left)
+    const offsetY = Math.round(yOrig - base.top)
     onChange({ ...template.layout, offsetX, offsetY })
   }
   function handleUp() { dragging.current = null }
@@ -263,13 +305,70 @@ function PreviewBox({ template, imagePath, onChange }: { template: Template; ima
   return (
     <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', position: 'relative', overflow: 'hidden' }} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}>
       {!!fileUrl && (
-        <img src={fileUrl} onLoad={(e: any) => setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none' }} />
+        <img src={fileUrl} onLoad={async (e: any) => {
+                setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+                try {
+                  if ((window as any).imageMeta?.get && imagePath) {
+                    const m = await (window as any).imageMeta.get(imagePath)
+                    const w = m?.orientedWidth || m?.width
+                    const h = m?.orientedHeight || m?.height
+                    if (w && h) setOrientedSize({ w, h })
+                  }
+                } catch {}
+              }
+            }
+            style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
       )}
       {template.type === 'text' && (
-        <div onMouseDown={handleDown} style={{ position: 'absolute', left: geom.xDisp, top: geom.yDisp, transform: 'translate(-50%, -50%)', color: template.text?.color, opacity: template.text?.opacity, fontSize: template.text?.fontSize, fontFamily: template.text?.fontFamily, cursor: 'move', userSelect: 'none', textShadow: '0 0 1px rgba(0,0,0,.2)' }}>
+        <div
+          onMouseDown={handleDown}
+          style={{
+            position: 'absolute',
+            left: geom.xDisp,
+            top: geom.yDisp,
+            // 根据九宫格预设决定锚点，确保不会因中心锚点导致越界
+            transform: (
+              template.layout.preset === 'tl' ? 'translate(0, 0)' :
+              template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
+              template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
+              template.layout.preset === 'cl' ? 'translate(0, -50%)' :
+              template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
+              template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
+              template.layout.preset === 'bl' ? 'translate(0, -100%)' :
+              template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
+              /* br */ 'translate(-100%, -100%)'
+            ),
+            color: template.text?.color,
+            opacity: template.text?.opacity,
+            fontSize: template.text?.fontSize,
+            lineHeight: `${template.text?.fontSize || 32}px`,
+            fontFamily: template.text?.fontFamily,
+            cursor: 'move',
+            userSelect: 'none',
+            textShadow: '0 0 1px rgba(0,0,0,.2)'
+          }}
+        >
           {template.text?.content}
         </div>
+      )}
+
+      {showDebugAnchors && (
+        <>
+          {['tl','tc','tr','cl','center','cr','bl','bc','br'].map((k) => {
+            const p = geom.calcPosition(k, 0, 0)
+            const xd = geom.ox + Math.round(p.left * geom.scale)
+            const yd = geom.oy + Math.round(p.top  * geom.scale)
+            return (
+              <div key={k} style={{ position: 'absolute', left: xd, top: yd, width: 8, height: 8, background: 'rgba(255,0,0,.8)', borderRadius: 4, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} title={k} />
+            )
+          })}
+          {(() => {
+            const curr = geom.calcPosition(template.layout.preset, template.layout.offsetX || 0, template.layout.offsetY || 0)
+            const xd = geom.ox + Math.round(curr.left * geom.scale)
+            const yd = geom.oy + Math.round(curr.top  * geom.scale)
+            return <div style={{ position: 'absolute', left: xd, top: yd, width: 10, height: 10, background: 'rgba(0,128,255,.9)', border: '1px solid #fff', borderRadius: 5, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} title="current" />
+          })()}
+        </>
       )}
     </div>
   )
