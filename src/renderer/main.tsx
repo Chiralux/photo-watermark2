@@ -388,21 +388,19 @@ function App() {
       <main style={{ flex: 1, display: 'flex' }}>
         <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f7f7' }}>
           {files.length ? (
-            enableCompressedPreview && format==='jpeg' ? (
-              <CompressedPreview template={tpl} imagePath={files[selected]} jpegQuality={jpegQuality} resize={((): any => {
-                if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
-                if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
-                return { mode: 'original' }
-              })()} />
-            ) : (
-              <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors}
+            <div style={{ position: 'relative', width: 480, height: 300 }}>
+              <PreviewBox
+                template={tpl}
+                imagePath={files[selected]}
+                onChange={(layout) => setTpl({ ...tpl, layout })}
+                showDebugAnchors={showDebugAnchors}
                 resize={((): any => {
                   if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
                   if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
                   return { mode: 'original' }
                 })()}
               />
-            )
+            </div>
           ) : (
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
           )}
@@ -492,6 +490,22 @@ function App() {
                 <input type="checkbox" checked={enableCompressedPreview} onChange={(e:any)=> setEnableCompressedPreview(!!e.target.checked)} />
                 压缩实时预览（在预览中模拟 JPEG 质量效果）
               </label>
+              {enableCompressedPreview && files.length>0 && (
+                <div style={{ marginTop: 8, display: 'inline-block', border: '1px dashed #ccc', borderRadius: 4, overflow: 'hidden' }}>
+                  <CompressedPreview
+                    template={tpl}
+                    imagePath={files[selected]}
+                    jpegQuality={jpegQuality}
+                    resize={((): any => {
+                      if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                      if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                      return { mode: 'original' }
+                    })()}
+                    w={220}
+                    h={138}
+                  />
+                </div>
+              )}
             </div>
           )}
           {/* 预计导出尺寸提示 */}
@@ -750,8 +764,8 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }:
   )
 }
 
-function CompressedPreview({ template, imagePath, jpegQuality, resize }: { template: Template; imagePath: string; jpegQuality: number; resize?: { mode: 'original'|'percent'|'custom'; width?: number; height?: number; percent?: number } }) {
-  const W = 480, H = 300
+function CompressedPreview({ template, imagePath, jpegQuality, resize, w, h }: { template: Template; imagePath: string; jpegQuality: number; resize?: { mode: 'original'|'percent'|'custom'; width?: number; height?: number; percent?: number }; w?: number; h?: number }) {
+  const W = Math.max(1, Math.round(w || 480)), H = Math.max(1, Math.round(h || 300))
   const [url, setUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
   const [err, setErr] = useState<string>('')
@@ -780,7 +794,7 @@ function CompressedPreview({ template, imagePath, jpegQuality, resize }: { templ
 
   return (
     <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-      {loading ? <div style={{ color: '#888' }}>生成预览中…</div> : (url ? <img src={url} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <div style={{ color: '#888' }}>{err || '无预览'}</div>)}
+      {loading ? <div style={{ color: '#888', fontSize: 12 }}>JPEG 预览生成中…</div> : (url ? <img src={url} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <div style={{ color: '#888', fontSize: 12 }}>{err || '无 JPEG 预览'}</div>)}
     </div>
   )
 }
