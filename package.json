@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n vite,app -c auto \"vite --host --port 5173 --strictPort\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron . --dev\"",
+    "dev:5174": "concurrently -k -n vite,app -c auto \"vite --host --port 5174 --strictPort\" \"wait-on http://localhost:5174 && cross-env VITE_DEV_SERVER_URL=http://localhost:5174 electron . --dev\"",
     "build:renderer": "vite build",
     "build": "npm run build:renderer && electron-builder",
     "start": "electron ."
@@ -26,6 +27,9 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "exif-reader": "^2.0.1",
+    "exif-parser": "^0.1.12",
+    "exifr": "^7.1.3",
     "file-type": "^19.4.0",
     "konva": "^9.3.16",
     "p-queue": "^8.0.1",
