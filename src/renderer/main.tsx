@@ -73,6 +73,8 @@ function App() {
   const [fontList, setFontList] = useState<string[]>([])
   const [fontQuery, setFontQuery] = useState<string>('')
   const [fontAvailable, setFontAvailable] = useState<boolean>(true)
+  const [fontHasItalic, setFontHasItalic] = useState<boolean>(false)
+  const [fontStylesMap, setFontStylesMap] = useState<Record<string, { hasItalic: boolean; styles: string[] }>>({})
   const commonFonts = useMemo(() => (
     [
       'Segoe UI', 'Microsoft YaHei', 'Arial', 'Helvetica', 'PingFang SC',
@@ -152,8 +154,10 @@ function App() {
         const names = await window.api.templates.list().catch(()=>[])
         setTplList(Array.isArray(names)? names : [])
         if (cfg.defaultName) setDefaultTplName(cfg.defaultName)
-        // 读取系统字体
-        try { const fs = await (window as any).api?.systemFonts?.list?.(); if (Array.isArray(fs)) setFontList(fs) } catch {}
+  // 读取系统字体
+  try { const fs = await (window as any).api?.systemFonts?.list?.(); if (Array.isArray(fs)) setFontList(fs) } catch {}
+  // 读取字体样式信息（是否包含 italic/oblique）
+  try { const sm = await (window as any).api?.systemFonts?.styles?.(); if (sm && typeof sm === 'object') setFontStylesMap(sm) } catch {}
 
         // 读取元数据回退配置
         if ((window as any).api?.meta?.getFallbackConfig) {
@@ -190,6 +194,59 @@ function App() {
     } catch { ok = true }
     setFontAvailable(ok)
   }, [tpl.text?.fontFamily])
+
+  // 检测当前字体是否具备原生 italic 变体：优先用主进程返回的样式表，其次用 document.fonts.check 回退
+  useEffect(() => {
+    const fam = tpl.text?.fontFamily
+    if (!fam) { setFontHasItalic(false); return }
+    let has = false
+    // 统一化名字做一些中文常见字体的强制判断
+    const f = fam.toLowerCase()
+    const forceNoItalic = (() => {
+      // 包含这些关键字的家族几乎不提供原生斜体
+      const noItalSubstr = ['simsun', 'nsimsun', 'simhei', 'microsoft yahei', '微软雅黑', '宋体', '黑体', 'pingfang', 'noto sans cjk sc', 'noto sans sc', 'source han sans', '思源黑体', 'wenquanyi', 'dengxian', '等线']
+      return noItalSubstr.some(k => f.includes(k))
+    })()
+    if (forceNoItalic) { setFontHasItalic(false); return }
+    // 主进程字体扫描优先
+    if (fontStylesMap && fontStylesMap[fam]) {
+      has = !!fontStylesMap[fam].hasItalic
+    } else {
+      // 英文字体的正面白名单
+      const knownHasItalic = new Set(['Arial','Times New Roman','Georgia','Helvetica','Courier New','Consolas','Segoe UI'])
+      if (knownHasItalic.has(fam)) has = true
+      else has = false
+    }
+    setFontHasItalic(has)
+  }, [tpl.text?.fontFamily, fontStylesMap])
+
+  // 根据字体是否有斜体，联动当前样式：
+  // - 若无斜体且当前为 fontStyle=italic，则切回 normal 并启用仿斜；
+  // - 若有斜体且当前启用了仿斜，则关闭仿斜并切换到 fontStyle=italic。
+  useEffect(() => {
+    setTpl(prev => {
+      const has = fontHasItalic
+      const t = prev.text || {} as any
+      // 复制，避免引用同一对象
+      const nextText = { ...t }
+      let changed = false
+      if (!has) {
+        if (nextText.fontStyle === 'italic') {
+          nextText.fontStyle = 'normal'
+          nextText.italicSynthetic = true
+          if (nextText.italicSkewDeg === undefined || nextText.italicSkewDeg === null) nextText.italicSkewDeg = 12
+          changed = true
+        }
+      } else {
+        if (nextText.italicSynthetic) {
+          nextText.italicSynthetic = false
+          nextText.fontStyle = 'italic'
+          changed = true
+        }
+      }
+      return changed ? { ...prev, text: nextText } : prev
+    })
+  }, [fontHasItalic])
 
   // 模板变更时自动保存
   useEffect(() => {
@@ -547,9 +604,24 @@ function App() {
                 <label>粗体
                   <input type="checkbox" checked={(tpl.text?.fontWeight||'normal')!=='normal'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontWeight: e.target.checked ? 'bold' : 'normal' } })} style={{ marginLeft: 6 }} />
                 </label>
-                <label>斜体
-                  <input type="checkbox" checked={(tpl.text?.fontStyle||'normal')==='italic'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontStyle: e.target.checked ? 'italic' : 'normal' } })} style={{ marginLeft: 6 }} />
-                </label>
+                {fontHasItalic ? (
+                  <label>斜体
+                    <input type="checkbox" checked={(tpl.text?.fontStyle||'normal')==='italic'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontStyle: e.target.checked ? 'italic' : 'normal' } })} style={{ marginLeft: 6 }} />
+                  </label>
+                ) : (
+                  <>
+                    <label title="所选字体没有原生 italic 变体，开启仿斜以获得类似效果。">
+                      仿斜
+                      <input type="checkbox" checked={!!tpl.text?.italicSynthetic} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSynthetic: !!e.target.checked } })} style={{ marginLeft: 6 }} />
+                    </label>
+                    {tpl.text?.italicSynthetic && (
+                      <label title="仿斜角度（度），通常 10–15 度较为自然。">
+                        角度°
+                        <input type="number" step={1} style={{ width: 72, marginLeft: 6 }} value={tpl.text?.italicSkewDeg ?? 12} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSkewDeg: Number(e.target.value) } })} />
+                      </label>
+                    )}
+                  </>
+                )}
                 <label>不透明度 <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} style={{ width: 80 }} /></label>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   基线微调(px)

@@ -124,6 +124,33 @@ ipcMain.handle('systemFonts:list', async () => {
   } catch { return [] }
 })
 
+// 返回各字体家族是否包含 italic/oblique 样式
+ipcMain.handle('systemFonts:styles', async () => {
+  try {
+    if (fontScanner && typeof fontScanner.getAvailableFontsSync === 'function') {
+      const fonts = fontScanner.getAvailableFontsSync()
+      const map = new Map()
+      for (const f of fonts) {
+        const fam = f?.family
+        if (!fam) continue
+        const style = String(f?.style || '').toLowerCase()
+        const italicish = /italic|oblique/.test(style)
+        if (!map.has(fam)) map.set(fam, { hasItalic: false, styles: new Set() })
+        const ent = map.get(fam)
+        if (italicish) ent.hasItalic = true
+        ent.styles.add(f?.style || '')
+      }
+      // 转换为纯对象，styles 转数组
+      const out = {}
+      for (const [k, v] of map.entries()) {
+        out[k] = { hasItalic: !!v.hasItalic, styles: Array.from(v.styles) }
+      }
+      return out
+    }
+  } catch {}
+  return {}
+})
+
 // Minimal IPC handlers
 ipcMain.handle('image:getMetadata', async (_evt, inputPath) => {
   try {
@@ -754,10 +781,17 @@ function buildTextSVG(text, layout, W, H) {
     ? `stroke="rgb(${outlineColorRGB.r},${outlineColorRGB.g},${outlineColorRGB.b})" stroke-opacity="${outlineOpacity}" stroke-width="${outlineWidthImage}" paint-order="stroke"`
     : `stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}"`
   const filterAttr = shadowEnabled ? `filter="url(#wmShadow)"` : ''
+  // 仿斜（若启用）：在 (x,y) 处先平移到原点，再 skewX，然后平移回去
+  const syntheticItalic = !!text?.italicSynthetic
+  const skewDeg = Number.isFinite(text?.italicSkewDeg) ? Number(text.italicSkewDeg) : 12
+  const skewCmd = syntheticItalic ? `translate(${x}, ${y}) skewX(${-skewDeg}) translate(${-x}, ${-y})` : ''
+  const groupTransform = [skewCmd].filter(Boolean).join(' ')
   return `<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
       ${defs.length?`<defs>${defs.join('\n')}</defs>`:''}
-      <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
+      ${groupTransform ? `<g transform="${groupTransform}">` : ''}
+        <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
+      ${groupTransform ? `</g>` : ''}
   </svg>`
 }
 

@@ -144,7 +144,8 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
               template.layout.preset === 'bl' ? 'translate(0, -100%)' :
               template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
               'translate(-100%, -100%)'
-            ),
+            ) + (template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : ''),
+            transformOrigin: '50% 50%',
             color: template.text?.color,
             opacity: template.text?.opacity,
             fontSize: template.text?.fontSize,

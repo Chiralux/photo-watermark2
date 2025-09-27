@@ -6,6 +6,10 @@ export type Template = {
     fontSize?: number;
     fontWeight?: number | 'normal' | 'bold';
     fontStyle?: 'normal' | 'italic';
+    // 当字体不存在原生 italic 变体时，使用仿斜（skewX）来模拟
+    italicSynthetic?: boolean;
+    // 仿斜角度（度），通常 10-15° 视觉最接近
+    italicSkewDeg?: number;
     opacity?: number;
     color?: string;
     baselineAdjust?: number;
