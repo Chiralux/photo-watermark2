@@ -677,6 +677,31 @@ function buildTextSVG(text, layout, W, H) {
   const opacity = Math.max(0, Math.min(1, text?.opacity ?? 0.6))
   const fontWeight = (text?.fontWeight ?? 'normal')
   const fontStyle = (text?.fontStyle ?? 'normal')
+  // 样式：描边与阴影（按预览->原图比例换算尺寸参数）
+  function hexToRgb(hex) {
+    try {
+      if (!hex) return { r: 0, g: 0, b: 0 }
+      let s = String(hex).trim(); if (s.startsWith('#')) s = s.slice(1)
+      if (s.length === 3) s = s.split('').map(c => c + c).join('')
+      const r = parseInt(s.slice(0,2),16), g = parseInt(s.slice(2,4),16), b = parseInt(s.slice(4,6),16)
+      return { r: isFinite(r)?r:0, g: isFinite(g)?g:0, b: isFinite(b)?b:0 }
+    } catch { return { r:0,g:0,b:0 } }
+  }
+  const outlineEnabled = !!text?.outline?.enabled
+  const outlineWidthPxPreview = Math.max(0, Math.round(Number(text?.outline?.width) || 0))
+  const outlineOpacity = Math.max(0, Math.min(1, Number(text?.outline?.opacity) ?? 1))
+  const outlineColorRGB = hexToRgb(text?.outline?.color || '#000000')
+  const outlineWidthImage = outlineEnabled ? Math.max(0, Math.round(outlineWidthPxPreview / (scalePreviewToImage || 1))) : 0
+
+  const shadowEnabled = !!text?.shadow?.enabled
+  const shadowOffsetXPreview = Math.round(Number(text?.shadow?.offsetX) || 0)
+  const shadowOffsetYPreview = Math.round(Number(text?.shadow?.offsetY) || 0)
+  const shadowBlurPreview = Math.max(0, Math.round(Number(text?.shadow?.blur) || 0))
+  const shadowOpacity = Math.max(0, Math.min(1, Number(text?.shadow?.opacity) ?? 1))
+  const shadowColorRGB = hexToRgb(text?.shadow?.color || '#000000')
+  const shadowOffsetX = shadowEnabled ? (shadowOffsetXPreview / (scalePreviewToImage || 1)) : 0
+  const shadowOffsetY = shadowEnabled ? (shadowOffsetYPreview / (scalePreviewToImage || 1)) : 0
+  const shadowBlur = shadowEnabled ? Math.max(0, shadowBlurPreview / (scalePreviewToImage || 1)) : 0
   // 根据九宫格预设决定 SVG 文本的锚点与基线，和预览端保持一致
   function getSvgAnchors(preset) {
     switch (preset) {
@@ -717,9 +742,22 @@ function buildTextSVG(text, layout, W, H) {
     // 为提升兼容性，避免使用 dy 属性（部分渲染器处理不一致），改为直接叠加到 y 坐标
     y = y + dyPx
   // Basic SVG text; advanced shadow/stroke可后续扩展
+  const defs = []
+  if (shadowEnabled) {
+    defs.push(`
+      <filter id="wmShadow" x="-50%" y="-50%" width="200%" height="200%">
+        <feDropShadow dx="${shadowOffsetX}" dy="${shadowOffsetY}" stdDeviation="${shadowBlur}"
+          flood-color="rgb(${shadowColorRGB.r},${shadowColorRGB.g},${shadowColorRGB.b})" flood-opacity="${shadowOpacity}" />
+      </filter>`)
+  }
+  const strokeAttrs = outlineEnabled && outlineWidthImage>0
+    ? `stroke="rgb(${outlineColorRGB.r},${outlineColorRGB.g},${outlineColorRGB.b})" stroke-opacity="${outlineOpacity}" stroke-width="${outlineWidthImage}" paint-order="stroke"`
+    : `stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}"`
+  const filterAttr = shadowEnabled ? `filter="url(#wmShadow)"` : ''
   return `<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
+      ${defs.length?`<defs>${defs.join('\n')}</defs>`:''}
+      <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
   </svg>`
 }
 

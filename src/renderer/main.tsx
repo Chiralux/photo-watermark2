@@ -3,7 +3,18 @@ import { createRoot } from 'react-dom/client'
 
 type Template = {
   type: 'text' | 'image'
-  text?: { content: string; fontFamily?: string; fontSize?: number; fontWeight?: number | 'normal' | 'bold'; fontStyle?: 'normal' | 'italic'; opacity?: number; color?: string; baselineAdjust?: number }
+  text?: {
+    content: string;
+    fontFamily?: string;
+    fontSize?: number;
+    fontWeight?: number | 'normal' | 'bold';
+    fontStyle?: 'normal' | 'italic';
+    opacity?: number;
+    color?: string;
+    baselineAdjust?: number;
+    outline?: { enabled?: boolean; color?: string; width?: number; opacity?: number };
+    shadow?: { enabled?: boolean; color?: string; offsetX?: number; offsetY?: number; blur?: number; opacity?: number };
+  }
   image?: { path: string; opacity?: number; scale?: number }
   layout: { preset: string; offsetX?: number; offsetY?: number }
 }
@@ -14,6 +25,23 @@ function wrapFontFamily(name?: string) {
   const needsQuote = /[\s,]/.test(name)
   const quoted = needsQuote ? `"${name}"` : name
   return `${quoted}, system-ui, Arial, sans-serif`
+}
+
+// 颜色工具：#RGB/#RRGGBB -> rgba(r,g,b,a)
+function hexToRgba(hex?: string, alpha: number = 1): string {
+  if (!hex) return `rgba(0,0,0,${alpha})`
+  let s = hex.trim()
+  if (s.startsWith('#')) s = s.slice(1)
+  if (s.length === 3) s = s.split('').map(c => c + c).join('')
+  if (/^([0-9a-fA-F]{6})$/.test(s)) {
+    const r = parseInt(s.slice(0,2), 16)
+    const g = parseInt(s.slice(2,4), 16)
+    const b = parseInt(s.slice(4,6), 16)
+    const a = Math.max(0, Math.min(1, alpha))
+    return `rgba(${r},${g},${b},${a})`
+  }
+  // 回退：直接返回原色并附带 alpha（多数浏览器不支持 hex+alpha，这里保底 rgba 黑）
+  return `rgba(0,0,0,${Math.max(0, Math.min(1, alpha))})`
 }
 
 declare global {
@@ -134,7 +162,18 @@ function App() {
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
-    text: { content: '© MyBrand', fontFamily: 'Arial', fontSize: 32, fontWeight: 'normal', fontStyle: 'normal', opacity: 0.6, color: '#FFFFFF', baselineAdjust: 0 },
+    text: {
+      content: '© MyBrand',
+      fontFamily: 'Arial',
+      fontSize: 32,
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      opacity: 0.6,
+      color: '#FFFFFF',
+      baselineAdjust: 0,
+      outline: { enabled: false, color: '#000000', width: 1, opacity: 0.25 },
+      shadow: { enabled: false, color: '#000000', offsetX: 1, offsetY: 1, blur: 2, opacity: 0.3 },
+    },
     layout: { preset: 'center', offsetX: 0, offsetY: 0 },
   })
 
@@ -564,6 +603,36 @@ function App() {
                   <input type="number" step={1} value={tpl.text?.baselineAdjust ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjust: Number(e.target.value) } })} style={{ width: 100 }} />
                 </label>
               </div>
+              {/* 描边设置 */}
+              <fieldset style={{ marginTop: 8, border: '1px solid #eee' }}>
+                <legend style={{ color: '#666' }}>描边</legend>
+                <label>
+                  <input type="checkbox" checked={!!tpl.text?.outline?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), enabled: !!e.target.checked } } })} /> 启用
+                </label>
+                {tpl.text?.outline?.enabled && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                    <label>颜色 <input type="color" value={tpl.text?.outline?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), color: e.target.value } } })} /></label>
+                    <label>宽度(px) <input type="number" min={0} step={1} style={{ width: 80 }} value={tpl.text?.outline?.width ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), width: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /></label>
+                    <label>不透明度 <input type="number" min={0} max={1} step={0.05} style={{ width: 80 }} value={tpl.text?.outline?.opacity ?? 0.25} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></label>
+                  </div>
+                )}
+              </fieldset>
+              {/* 阴影设置 */}
+              <fieldset style={{ marginTop: 8, border: '1px solid #eee' }}>
+                <legend style={{ color: '#666' }}>阴影</legend>
+                <label>
+                  <input type="checkbox" checked={!!tpl.text?.shadow?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), enabled: !!e.target.checked } } })} /> 启用
+                </label>
+                {tpl.text?.shadow?.enabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                    <label>颜色 <input type="color" value={tpl.text?.shadow?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), color: e.target.value } } })} /></label>
+                    <label>不透明度 <input type="number" min={0} max={1} step={0.05} style={{ width: 80 }} value={tpl.text?.shadow?.opacity ?? 0.3} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></label>
+                    <label>偏移X(px) <input type="number" step={1} style={{ width: 80 }} value={tpl.text?.shadow?.offsetX ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetX: Math.round(Number(e.target.value)||0) } } })} /></label>
+                    <label>偏移Y(px) <input type="number" step={1} style={{ width: 80 }} value={tpl.text?.shadow?.offsetY ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetY: Math.round(Number(e.target.value)||0) } } })} /></label>
+                    <label>模糊(px) <input type="number" min={0} step={1} style={{ width: 80 }} value={tpl.text?.shadow?.blur ?? 2} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), blur: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /></label>
+                  </div>
+                )}
+              </fieldset>
               <label style={{ display: 'block', marginTop: 8 }}>颜色 <input type="color" value={tpl.text?.color || '#ffffff'} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, color: e.target.value } })} /></label>
             </div>
           )}
@@ -851,9 +920,15 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }:
             fontFamily: wrapFontFamily(template.text?.fontFamily),
             fontWeight: (template.text?.fontWeight as any) || 'normal',
             fontStyle: (template.text?.fontStyle as any) || 'normal',
+            // 描边
+            WebkitTextStroke: (template.text?.outline?.enabled ? `${Math.max(0, template.text?.outline?.width || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}` : undefined) as any,
+            // 阴影（可多层叠加，这里仅一层）
+            textShadow: (template.text?.shadow?.enabled
+              ? `${Math.round(template.text?.shadow?.offsetX || 0)}px ${Math.round(template.text?.shadow?.offsetY || 0)}px ${Math.max(0, template.text?.shadow?.blur || 0)}px ${hexToRgba(template.text?.shadow?.color, template.text?.shadow?.opacity ?? 1)}`
+              : '0 0 1px rgba(0,0,0,.2)'
+            ),
             cursor: 'move',
             userSelect: 'none',
-            textShadow: '0 0 1px rgba(0,0,0,.2)'
           }}
         >
           {template.text?.content}
