@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
     list: () => ipcRenderer.invoke('template:list'),
     load: (name) => ipcRenderer.invoke('template:load', name),
     save: (name, data) => ipcRenderer.invoke('template:save', { name, data }),
+    delete: (name) => ipcRenderer.invoke('template:delete', name),
     loadLast: () => ipcRenderer.invoke('template:loadLast'),
     saveLast: (data) => ipcRenderer.invoke('template:saveLast', data)
   }

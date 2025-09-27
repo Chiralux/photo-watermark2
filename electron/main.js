@@ -191,6 +191,17 @@ ipcMain.handle('template:save', async (_evt, { name, data }) => {
   return true
 })
 
+ipcMain.handle('template:delete', async (_evt, name) => {
+  try {
+    const dir = getTemplatesDir()
+    const p = path.join(dir, `${sanitize(name)}.json`)
+    await fsp.unlink(p)
+    return true
+  } catch {
+    return false
+  }
+})
+
 ipcMain.handle('template:loadLast', async () => {
   try {
     const p = path.join(getTemplatesDir(), `_last.json`)

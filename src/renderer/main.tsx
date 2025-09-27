@@ -19,6 +19,7 @@ declare global {
         list: () => Promise<string[]>
         load: (name: string) => Promise<Template>
         save: (name: string, data: Template) => Promise<boolean>
+        delete: (name: string) => Promise<boolean>
         loadLast: () => Promise<Template | null>
         saveLast: (data: Template) => Promise<boolean>
       }
@@ -40,6 +41,8 @@ function App() {
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
   const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ prefix: 'wm_', suffix: '_watermarked' })
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
+  const [tplName, setTplName] = useState<string>('')
+  const [tplList, setTplList] = useState<string[]>([])
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
@@ -53,6 +56,9 @@ function App() {
       try {
         const last = await window.api.templates.loadLast()
         if (last) setTpl(last)
+        // 读取模板列表
+        const names = await window.api.templates.list().catch(()=>[])
+        setTplList(Array.isArray(names)? names : [])
       } catch {}
     })()
   }, [])
@@ -142,6 +148,50 @@ function App() {
             </li>
           ))}
         </ul>
+
+        <h3 style={{ marginTop: 12 }}>模板</h3>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <input placeholder="输入模板名" value={tplName} onChange={(e:any)=>setTplName(e.target.value)} style={{ flex: 1 }} />
+          <button onClick={async ()=>{
+            const name = tplName.trim()
+            if (!name) { alert('请输入模板名'); return }
+            await window.api.templates.save(name, tpl)
+            setTplName('')
+            const names = await window.api.templates.list().catch(()=>[])
+            setTplList(Array.isArray(names)? names : [])
+            // 也把当前配置设为最近一次
+            await window.api.templates.saveLast(tpl)
+            alert('模板已保存')
+          }}>保存</button>
+        </div>
+        <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #eee', borderRadius: 4 }}>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {tplList.length? tplList.map(n => (
+              <li key={n} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #f2f2f2' }}>
+                <span>{n}</span>
+                <span style={{ display: 'inline-flex', gap: 6 }}>
+                  <button onClick={async ()=>{
+                    try {
+                      const t = await window.api.templates.load(n)
+                      if (t) setTpl(t)
+                      await window.api.templates.saveLast(t)
+                    } catch { alert('加载模板失败') }
+                  }}>加载</button>
+                  <button onClick={async ()=>{
+                    const ok = confirm(`删除模板 “${n}”？`)
+                    if (!ok) return
+                    const ok2 = await window.api.templates.delete(n)
+                    if (!ok2) { alert('删除失败'); return }
+                    const names = await window.api.templates.list().catch(()=>[])
+                    setTplList(Array.isArray(names)? names : [])
+                  }}>删除</button>
+                </span>
+              </li>
+            )) : (
+              <li style={{ padding: 8, color: '#888' }}>暂无模板</li>
+            )}
+          </ul>
+        </div>
       </aside>
 
       <main style={{ flex: 1, display: 'flex' }}>
