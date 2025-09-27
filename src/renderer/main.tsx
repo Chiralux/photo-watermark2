@@ -45,7 +45,12 @@ function App() {
   const [tplList, setTplList] = useState<string[]>([])
   // 导出范围：仅当前预览 or 全部
   const [exportScope, setExportScope] = useState<'current' | 'all'>(() => {
-    try { const v = localStorage.getItem('exportScope'); return (v === 'current' || v === 'all') ? (v as any) : 'all' } catch { return 'all' }
+    try {
+      const v = localStorage.getItem('exportScope')
+      return (v === 'current' || v === 'all') ? (v as any) : 'current'
+    } catch {
+      return 'current'
+    }
   })
 
   const [tpl, setTpl] = useState<Template>({
