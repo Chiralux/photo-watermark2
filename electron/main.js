@@ -771,8 +771,9 @@ function buildTextSVG(text, layout, W, H) {
   // Basic SVG text; advanced shadow/stroke可后续扩展
   const defs = []
   if (shadowEnabled) {
+    // 将过滤器坐标系切换到 userSpaceOnUse，并覆盖整张画布，避免大偏移/大模糊时被裁切
     defs.push(`
-      <filter id="wmShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter id="wmShadow" x="0" y="0" width="${W}" height="${H}" filterUnits="userSpaceOnUse">
         <feDropShadow dx="${shadowOffsetX}" dy="${shadowOffsetY}" stdDeviation="${shadowBlur}"
           flood-color="rgb(${shadowColorRGB.r},${shadowColorRGB.g},${shadowColorRGB.b})" flood-opacity="${shadowOpacity}" />
       </filter>`)
