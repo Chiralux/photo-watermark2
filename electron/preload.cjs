@@ -11,7 +11,9 @@ contextBridge.exposeInMainWorld('api', {
     save: (name, data) => ipcRenderer.invoke('template:save', { name, data }),
     delete: (name) => ipcRenderer.invoke('template:delete', name),
     loadLast: () => ipcRenderer.invoke('template:loadLast'),
-    saveLast: (data) => ipcRenderer.invoke('template:saveLast', data)
+    saveLast: (data) => ipcRenderer.invoke('template:saveLast', data),
+    getAutoLoadConfig: () => ipcRenderer.invoke('template:getAutoLoadConfig'),
+    setAutoLoadConfig: (cfg) => ipcRenderer.invoke('template:setAutoLoadConfig', cfg)
   }
 })
 

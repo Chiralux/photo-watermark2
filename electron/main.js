@@ -236,6 +236,26 @@ ipcMain.handle('template:saveLast', async (_evt, data) => {
   return true
 })
 
+// 模板自动加载配置：{ autoLoad: 'last' | 'default', defaultName?: string }
+ipcMain.handle('template:getAutoLoadConfig', async () => {
+  try {
+    const cfg = await readTemplateConfig()
+    return cfg
+  } catch {
+    return { autoLoad: 'last', defaultName: null }
+  }
+})
+
+ipcMain.handle('template:setAutoLoadConfig', async (_evt, cfg) => {
+  try {
+    const normalized = normalizeTemplateConfig(cfg)
+    await writeTemplateConfig(normalized)
+    return true
+  } catch {
+    return false
+  }
+})
+
 function buildOutputPath(inputPath, outputDir, naming, format) {
   const base = path.basename(inputPath)
   const ext = format === 'jpeg' ? '.jpg' : '.png'
@@ -368,6 +388,10 @@ function getTemplatesDir() {
   return path.join(app.getPath('userData'), 'templates')
 }
 
+function getTemplatesConfigPath() {
+  return path.join(getTemplatesDir(), '_config.json')
+}
+
 function sanitize(name='template') {
   return String(name).replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 64) || 'template'
 }
@@ -380,4 +404,31 @@ function getOrientedSize(meta) {
   // 1,2,3,4 不交换宽高；5,6,7,8 交换宽高
   if ([5,6,7,8].includes(ori)) return { width: h, height: w }
   return { width: w, height: h }
+}
+
+// 读写模板自动加载配置
+async function readTemplateConfig() {
+  const dir = getTemplatesDir()
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const p = getTemplatesConfigPath()
+  try {
+    const txt = await fsp.readFile(p, 'utf-8')
+    const j = JSON.parse(txt)
+    return normalizeTemplateConfig(j)
+  } catch {
+    return { autoLoad: 'last', defaultName: null }
+  }
+}
+
+function normalizeTemplateConfig(cfg) {
+  const auto = (cfg?.autoLoad === 'default' || cfg?.autoLoad === 'last') ? cfg.autoLoad : 'last'
+  const def = cfg?.defaultName ? String(cfg.defaultName).slice(0, 128) : null
+  return { autoLoad: auto, defaultName: def }
+}
+
+async function writeTemplateConfig(cfg) {
+  const dir = getTemplatesDir()
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const p = getTemplatesConfigPath()
+  await fsp.writeFile(p, JSON.stringify(normalizeTemplateConfig(cfg), null, 2), 'utf-8')
 }

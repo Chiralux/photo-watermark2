@@ -22,6 +22,8 @@ declare global {
         delete: (name: string) => Promise<boolean>
         loadLast: () => Promise<Template | null>
         saveLast: (data: Template) => Promise<boolean>
+        getAutoLoadConfig: () => Promise<{ autoLoad: 'last' | 'default'; defaultName: string | null }>
+        setAutoLoadConfig: (cfg: { autoLoad: 'last' | 'default'; defaultName: string | null }) => Promise<boolean>
       }
     }
   }
@@ -43,6 +45,9 @@ function App() {
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
   const [tplName, setTplName] = useState<string>('')
   const [tplList, setTplList] = useState<string[]>([])
+  // 自动加载：'last' | 'default'，以及默认模板名
+  const [autoLoad, setAutoLoad] = useState<'last' | 'default'>('last')
+  const [defaultTplName, setDefaultTplName] = useState<string>('')
   // 导出范围：仅当前预览 or 全部
   const [exportScope, setExportScope] = useState<'current' | 'all'>(() => {
     try {
@@ -63,11 +68,30 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const last = await window.api.templates.loadLast()
-        if (last) setTpl(last)
+        // 读取自动加载配置
+        let cfg = await window.api.templates.getAutoLoadConfig().catch(()=>({ autoLoad: 'last', defaultName: null }))
+        if (!cfg || (cfg.autoLoad !== 'last' && cfg.autoLoad !== 'default')) cfg = { autoLoad: 'last', defaultName: null }
+  setAutoLoad((cfg.autoLoad as 'last' | 'default'))
+
         // 读取模板列表
         const names = await window.api.templates.list().catch(()=>[])
         setTplList(Array.isArray(names)? names : [])
+        if (cfg.defaultName) setDefaultTplName(cfg.defaultName)
+
+        // 按配置加载模板
+        if (cfg.autoLoad === 'default' && cfg.defaultName) {
+          try {
+            const t = await window.api.templates.load(cfg.defaultName)
+            if (t) setTpl(t)
+          } catch {
+            // 回退到 last
+            const last = await window.api.templates.loadLast()
+            if (last) setTpl(last)
+          }
+        } else {
+          const last = await window.api.templates.loadLast()
+          if (last) setTpl(last)
+        }
       } catch {}
     })()
   }, [])
@@ -166,6 +190,26 @@ function App() {
         </ul>
 
         <h3 style={{ marginTop: 12 }}>模板</h3>
+        <div style={{ marginBottom: 8, padding: 8, border: '1px solid #eee', borderRadius: 6, background: '#fafafa' }}>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>自动加载</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <label><input type="radio" name="autoload" checked={autoLoad==='last'} onChange={()=>setAutoLoad('last')} /> 上次退出时设置</label>
+            <label><input type="radio" name="autoload" checked={autoLoad==='default'} onChange={()=>setAutoLoad('default')} /> 默认模板</label>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+            {autoLoad === 'default' && (
+              <select value={defaultTplName} onChange={(e:any)=>setDefaultTplName(e.target.value)} style={{ flex: 1 }}>
+                <option value="">（未选择）</option>
+                {tplList.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            )}
+            <button onClick={async ()=>{
+              const ok = await window.api.templates.setAutoLoadConfig({ autoLoad, defaultName: autoLoad==='default' ? (defaultTplName || null) : null })
+              if (!ok) { alert('保存失败'); return }
+              alert('自动加载设置已保存')
+            }}>保存</button>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <input placeholder="输入模板名" value={tplName} onChange={(e:any)=>setTplName(e.target.value)} style={{ flex: 1 }} />
           <button onClick={async ()=>{
@@ -200,6 +244,8 @@ function App() {
                     if (!ok2) { alert('删除失败'); return }
                     const names = await window.api.templates.list().catch(()=>[])
                     setTplList(Array.isArray(names)? names : [])
+                    // 若删除的是当前默认模板，清空选择
+                    if (n === defaultTplName) setDefaultTplName('')
                   }}>删除</button>
                 </span>
               </li>
