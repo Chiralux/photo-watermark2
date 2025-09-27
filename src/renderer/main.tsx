@@ -301,9 +301,6 @@ function App() {
         <section style={{ width: 320, borderLeft: '1px solid #eee', padding: 12, overflow: 'auto' }}>
           <h3>水印</h3>
           <div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-              <input type="checkbox" checked={showDebugAnchors} onChange={(e: any) => setShowDebugAnchors(!!e.target.checked)} /> 显示调试锚点
-            </label>
             <label>
               <input type="radio" name="wmtype" checked={tpl.type==='text'} onChange={() => setTpl({ ...tpl, type: 'text' })} /> 文本
             </label>
