@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('api', {
     saveLast: (data) => ipcRenderer.invoke('template:saveLast', data),
     getAutoLoadConfig: () => ipcRenderer.invoke('template:getAutoLoadConfig'),
     setAutoLoadConfig: (cfg) => ipcRenderer.invoke('template:setAutoLoadConfig', cfg)
+  },
+  meta: {
+    getFallbackConfig: () => ipcRenderer.invoke('meta:getFallbackConfig'),
+    setFallbackConfig: (cfg) => ipcRenderer.invoke('meta:setFallbackConfig', cfg)
   }
 })
 
