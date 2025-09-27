@@ -99,6 +99,24 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true })
   const concurrency = Math.max(1, Math.min(os.cpus()?.length || 4, 4))
   const queue = new PQueue({ concurrency })
+  // 记录本次批量导出将要写入的文件路径，避免不同输入文件由于同名而覆盖同一输出，
+  // 尤其是在并发写入时会表现为“多张图片融合到一张”的症状。
+  const plannedOutputs = new Set()
+  function uniqueOutputPath(inputPath) {
+    const desired = buildOutputPath(inputPath, outputDir, naming, format)
+    const dir = path.dirname(desired)
+    const ext = path.extname(desired)
+    const baseNoExt = path.basename(desired, ext)
+    let candidate = desired
+    let idx = 2
+    // 若已在本批计划内或磁盘已存在，则追加 -2, -3 ... 直到唯一
+    while (plannedOutputs.has(candidate) || existsSync(candidate)) {
+      candidate = path.join(dir, `${baseNoExt}-${idx}${ext}`)
+      idx++
+    }
+    plannedOutputs.add(candidate)
+    return candidate
+  }
 
   const results = []
   await Promise.all(tasks.map(task => queue.add(async () => {
@@ -153,8 +171,8 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
   if (typeof overlayFallbackPng !== 'undefined') composites.push({ input: overlayFallbackPng, top: 0, left: 0 })
   let pipeline = composites.length ? img.composite(composites) : img
 
-    // Output
-    let outputPath = buildOutputPath(inputPath, outputDir, naming, format)
+  // Output（生成唯一文件名，避免批量覆盖/并发写入冲突）
+  let outputPath = uniqueOutputPath(inputPath)
     if (format === 'jpeg') {
       pipeline = pipeline.jpeg({ quality: Math.max(1, Math.min(100, jpegQuality || 90)) })
     } else {
