@@ -41,9 +41,26 @@ function App() {
   const [files, setFiles] = useState<string[]>([])
   const [selected, setSelected] = useState<number>(0)
   const [currMeta, setCurrMeta] = useState<{ dateTaken?: string | null; dateSource?: string | null } | null>(null)
+  const [currSize, setCurrSize] = useState<{ w: number; h: number } | null>(null)
   const [outputDir, setOutputDir] = useState<string>('')
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
   const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ prefix: 'wm_', suffix: '_watermarked' })
+  // 导出尺寸调整
+  const [resizeMode, setResizeMode] = useState<'original'|'percent'|'custom'>(()=>{
+    try {
+      const v = localStorage.getItem('resizeMode')
+      return (v==='percent'||v==='custom') ? (v as any) : 'original'
+    } catch { return 'original' }
+  })
+  const [customWidth, setCustomWidth] = useState<number>(()=>{
+    try { const v = Number(localStorage.getItem('customWidth')); return Number.isFinite(v) && v>0 ? Math.round(v) : 2048 } catch { return 2048 }
+  })
+  const [customHeight, setCustomHeight] = useState<number>(()=>{
+    try { const v = Number(localStorage.getItem('customHeight')); return Number.isFinite(v) && v>0 ? Math.round(v) : 2048 } catch { return 2048 }
+  })
+  const [resizePercent, setResizePercent] = useState<number>(()=>{
+    try { const v = Number(localStorage.getItem('resizePercent')); return Number.isFinite(v) && v>0 ? Math.round(v) : 100 } catch { return 100 }
+  })
   // JPEG 质量（0-100，可选高级），仅在导出为 JPEG 时启用
   const [jpegQuality, setJpegQuality] = useState<number>(() => {
     try {
@@ -138,6 +155,11 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('jpegQuality', String(jpegQuality)) } catch {}
   }, [jpegQuality])
+  // 记住尺寸设置
+  useEffect(()=>{ try { localStorage.setItem('resizeMode', resizeMode) } catch {} }, [resizeMode])
+  useEffect(()=>{ try { localStorage.setItem('customWidth', String(customWidth)) } catch {} }, [customWidth])
+  useEffect(()=>{ try { localStorage.setItem('customHeight', String(customHeight)) } catch {} }, [customHeight])
+  useEffect(()=>{ try { localStorage.setItem('resizePercent', String(resizePercent)) } catch {} }, [resizePercent])
 
   // 读取当前选中文件的元数据（拍摄时间）
   useEffect(() => {
@@ -147,6 +169,9 @@ function App() {
         if (!path || !(window as any).imageMeta?.get) { setCurrMeta(null); return }
         const m = await (window as any).imageMeta.get(path)
         setCurrMeta({ dateTaken: m?.dateTaken ?? null, dateSource: m?.dateSource ?? null })
+        const w = m?.orientedWidth || m?.width || 0
+        const h = m?.orientedHeight || m?.height || 0
+        setCurrSize(w && h ? { w, h } : null)
       } catch { setCurrMeta(null) }
     })()
   }, [files, selected])
@@ -200,7 +225,16 @@ function App() {
     const idx = Math.max(0, Math.min(selected, files.length - 1))
     const chosen = exportScope === 'current' ? [files[idx]] : files
     const tasks = chosen.map(f => ({ inputPath: f, config: tpl }))
-    const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality })
+    const resize = ((): any => {
+      if (resizeMode === 'custom') {
+        const w = Math.max(0, Math.round(customWidth||0))
+        const h = Math.max(0, Math.round(customHeight||0))
+        return { mode: 'custom', width: w || undefined, height: h || undefined }
+      }
+      if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+      return { mode: 'original' }
+    })()
+    const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality, resize })
     alert(`导出完成：${res?.length || 0} 张`)
   }
 
@@ -355,9 +389,19 @@ function App() {
         <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f7f7' }}>
           {files.length ? (
             enableCompressedPreview && format==='jpeg' ? (
-              <CompressedPreview template={tpl} imagePath={files[selected]} jpegQuality={jpegQuality} />
+              <CompressedPreview template={tpl} imagePath={files[selected]} jpegQuality={jpegQuality} resize={((): any => {
+                if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                return { mode: 'original' }
+              })()} />
             ) : (
-              <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors} />
+              <PreviewBox template={tpl} imagePath={files[selected]} onChange={(layout) => setTpl({ ...tpl, layout })} showDebugAnchors={showDebugAnchors}
+                resize={((): any => {
+                  if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                  if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                  return { mode: 'original' }
+                })()}
+              />
             )
           ) : (
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
@@ -450,6 +494,54 @@ function App() {
               </label>
             </div>
           )}
+          {/* 预计导出尺寸提示 */}
+          <EstimatedSizeHint
+            size={currSize}
+            mode={resizeMode}
+            widthVal={customWidth}
+            heightVal={customHeight}
+            percentVal={resizePercent}
+          />
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>尺寸调整（可选）</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="radio" name="resizeMode" checked={resizeMode==='original'} onChange={()=>setResizeMode('original')} />
+                原始尺寸（不调整）
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="radio" name="resizeMode" checked={resizeMode==='percent'} onChange={()=>setResizeMode('percent')} />
+                按百分比（%）
+                <input
+                  type="number" min={1} step={1} value={resizePercent}
+                  onChange={(e:any)=> { setResizePercent(Math.max(1, Math.round(Number(e.target.value)||0))); setResizeMode('percent') }}
+                  style={{ width: 96 }}
+                />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="radio" name="resizeMode" checked={resizeMode==='custom'} onChange={()=>setResizeMode('custom')} />
+                自定义长宽（px）
+                <input
+                  type="number" min={0} step={1} placeholder="宽"
+                  value={customWidth}
+                  onChange={(e:any)=> { setCustomWidth(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }}
+                  style={{ width: 86 }}
+                />
+                ×
+                <input
+                  type="number" min={0} step={1} placeholder="高"
+                  value={customHeight}
+                  onChange={(e:any)=> { setCustomHeight(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }}
+                  style={{ width: 86 }}
+                />
+              </label>
+              <div style={{ color:'#666', fontSize:12 }}>
+                说明：
+                - 百分比：基于原图尺寸等比缩放。
+                - 自定义长宽：可同时填写宽和高；如仅填一边，则按原始宽高比自动推算另一边；填写 0 表示该边未指定。
+              </div>
+            </div>
+          </div>
           <div style={{ marginTop: 8 }}>
             <div>导出范围</div>
             <label>
@@ -476,7 +568,7 @@ function App() {
   )
 }
 
-function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { template: Template; imagePath?: string; onChange: (layout: Template['layout']) => void; showDebugAnchors?: boolean }) {
+function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }: { template: Template; imagePath?: string; onChange: (layout: Template['layout']) => void; showDebugAnchors?: boolean; resize?: { mode: 'original'|'percent'|'custom'; width?: number; height?: number; percent?: number } }) {
   const W = 480, H = 300, margin = 16
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [orientedSize, setOrientedSize] = useState<{ w: number; h: number } | null>(null)
@@ -489,9 +581,25 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { templ
   }, [imagePath])
 
   const geom = useMemo(() => {
-    // 优先使用经 EXIF 方向修正后的尺寸，确保与浏览器显示一致
-    const ow = orientedSize?.w || imgSize?.w || W
-    const oh = orientedSize?.h || imgSize?.h || H
+    // 基础尺寸：经 EXIF 方向修正后的原图尺寸
+    const baseW = orientedSize?.w || imgSize?.w || W
+    const baseH = orientedSize?.h || imgSize?.h || H
+    // 应用尺寸设置，得到“有效输出尺寸”
+    let ow = baseW, oh = baseH
+    if (resize?.mode === 'percent' && Number.isFinite(resize?.percent)) {
+      const p = Math.max(1, Math.round(Number(resize.percent)))
+      const r = p / 100
+      ow = Math.max(1, Math.round(baseW * r))
+      oh = Math.max(1, Math.round(baseH * r))
+    } else if (resize?.mode === 'custom') {
+      const wIn = Number(resize?.width)
+      const hIn = Number(resize?.height)
+      const hasW = Number.isFinite(wIn) && wIn > 0
+      const hasH = Number.isFinite(hIn) && hIn > 0
+      if (hasW && hasH) { ow = Math.round(wIn); oh = Math.round(hIn) }
+      else if (hasW && !hasH) { const s = Math.max(1, Math.round(wIn)) / baseW; ow = Math.max(1, Math.round(wIn)); oh = Math.max(1, Math.round(baseH * s)) }
+      else if (!hasW && hasH) { const s = Math.max(1, Math.round(hIn)) / baseH; oh = Math.max(1, Math.round(hIn)); ow = Math.max(1, Math.round(baseW * s)) }
+    }
     // 使用 contain 模式：完整显示整张图片
     const scale = Math.min(W / ow, H / oh)
     const dw = Math.round(ow * scale)
@@ -523,7 +631,7 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { templ
     const yDisp = oy + Math.round(pos.top * scale)
 
     return { ow, oh, scale, dw, dh, ox, oy, xDisp, yDisp, calcPosition }
-  }, [imgSize, orientedSize, template])
+  }, [imgSize, orientedSize, template, resize])
 
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
@@ -642,7 +750,7 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors }: { templ
   )
 }
 
-function CompressedPreview({ template, imagePath, jpegQuality }: { template: Template; imagePath: string; jpegQuality: number }) {
+function CompressedPreview({ template, imagePath, jpegQuality, resize }: { template: Template; imagePath: string; jpegQuality: number; resize?: { mode: 'original'|'percent'|'custom'; width?: number; height?: number; percent?: number } }) {
   const W = 480, H = 300
   const [url, setUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
@@ -655,7 +763,7 @@ function CompressedPreview({ template, imagePath, jpegQuality }: { template: Tem
       if (!imagePath || !api?.preview?.render) { setUrl(''); return }
       setLoading(true); setErr('')
       try {
-        const res = await api.preview.render({ inputPath: imagePath, config: template, format: 'jpeg', jpegQuality })
+  const res = await api.preview.render({ inputPath: imagePath, config: template, format: 'jpeg', jpegQuality, resize })
         if (!stop) {
           const u = res?.url || res?.dataUrl || ''
           if (res?.ok && u) setUrl(u)
@@ -668,7 +776,7 @@ function CompressedPreview({ template, imagePath, jpegQuality }: { template: Tem
       }
     }, 200)
     return () => { stop = true; clearTimeout(timer) }
-  }, [imagePath, template, jpegQuality])
+  }, [imagePath, template, jpegQuality, resize])
 
   return (
     <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
@@ -678,3 +786,38 @@ function CompressedPreview({ template, imagePath, jpegQuality }: { template: Tem
 }
 
 createRoot(document.getElementById('root') as HTMLElement).render(<App />)
+
+// 辅助组件：展示“预计导出尺寸”，帮助确认缩放设置
+function EstimatedSizeHint({ size, mode, widthVal, heightVal, percentVal }: {
+  size: { w: number; h: number } | null
+  mode: 'original'|'percent'|'custom'
+  widthVal: number
+  heightVal: number
+  percentVal: number
+}) {
+  if (!size) return null
+  const { w, h } = size
+  let outW = w, outH = h
+  if (mode === 'percent') {
+    const p = Math.max(1, Math.round(percentVal||0))
+    const ratio = p / 100
+    outW = Math.max(1, Math.round(w * ratio))
+    outH = Math.max(1, Math.round(h * ratio))
+  } else if (mode === 'custom') {
+    const W = Math.max(0, Math.round(widthVal||0))
+    const H = Math.max(0, Math.round(heightVal||0))
+    if (W && H) { outW = W; outH = H }
+    else if (W && !H) {
+      const ratio = w ? (W / w) : 1
+      outW = W; outH = Math.max(1, Math.round(h * ratio))
+    } else if (!W && H) {
+      const ratio = h ? (H / h) : 1
+      outH = H; outW = Math.max(1, Math.round(w * ratio))
+    }
+  }
+  return (
+    <div style={{ marginTop: 6, color: '#666', fontSize: 12 }}>
+      预计导出尺寸：{outW} × {outH}px
+    </div>
+  )
+}

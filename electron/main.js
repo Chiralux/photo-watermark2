@@ -236,7 +236,10 @@ ipcMain.handle('dialog:openDirectory', async () => {
 })
 
 ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
-  const { tasks, outputDir, format, naming, jpegQuality } = payload
+  const { tasks, outputDir, format, naming, jpegQuality, resize } = payload
+  if (isDev) {
+    try { console.log('[export] format=%s jpegQuality=%s resize=%o', format, jpegQuality, resize) } catch {}
+  }
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true })
   const concurrency = Math.max(1, Math.min(os.cpus()?.length || 4, 4))
   const queue = new PQueue({ concurrency })
@@ -264,38 +267,71 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
     const { inputPath, config } = task
     const { type, text, image, layout } = config
 
-  // 读取原始元数据，计算“应用 EXIF 后”的目标宽高，用于定位与叠加
-  const srcMeta = await sharp(inputPath).metadata()
-  const { width: W, height: H } = getOrientedSize(srcMeta)
-  // 应用 EXIF 方向，保证像素坐标与视觉方向一致
-  const img = sharp(inputPath).rotate()
+  // 先将旋正后的图像读入内存，获取“实际用于复合”的精确宽高
+  const baseBuf = await sharp(inputPath).rotate().toBuffer()
+  const baseMeta = await sharp(baseBuf).metadata()
+  const W = baseMeta.width || 0
+  const H = baseMeta.height || 0
+  if (!W || !H) throw new Error('invalid base dimensions for export')
 
-    // Build overlay
+    // 计算目标输出尺寸（先缩放，再复合，避免 overlay/base 不一致）
+    let targetW = W
+    let targetH = H
+    try {
+      const mode = resize?.mode || 'original'
+      if (mode === 'custom') {
+        const wIn = Number(resize?.width)
+        const hIn = Number(resize?.height)
+        const hasW = Number.isFinite(wIn) && wIn > 0
+        const hasH = Number.isFinite(hIn) && hIn > 0
+        if (hasW && hasH) {
+          targetW = Math.max(1, Math.round(wIn))
+          targetH = Math.max(1, Math.round(hIn))
+        } else if (hasW && !hasH) {
+          const w = Math.max(1, Math.round(wIn))
+          const s = w / W
+          targetW = w
+          targetH = Math.max(1, Math.round(H * s))
+        } else if (!hasW && hasH) {
+          const h = Math.max(1, Math.round(hIn))
+          const s = h / H
+          targetH = h
+          targetW = Math.max(1, Math.round(W * s))
+        }
+      } else if (mode === 'percent' && Number.isFinite(resize?.percent)) {
+        const p = Math.max(1, Math.round(Number(resize.percent)))
+        const s = p / 100
+        targetW = Math.max(1, Math.round(W * s))
+        targetH = Math.max(1, Math.round(H * s))
+      }
+    } catch {}
+
+    // 先按目标尺寸缩放底图
+    const baseForComposite = (targetW === W && targetH === H)
+      ? baseBuf
+      : await sharp(baseBuf).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
+
+    // 构建与目标尺寸一致的覆盖层（文本或图片）
     let overlayInput
     if (type === 'text') {
-      // 文本水印：先将 SVG 栅格化为 PNG，再进行复合，提升兼容性
-      const svg = buildTextSVG(text, layout, W, H)
-      // 直接以 SVG 覆盖，避免某些环境下 SVG->PNG 栅格化导致透明输出
-      overlayInput = Buffer.from(svg)
-      // 额外准备一个 PNG 栅格化后备，极端环境下双重叠加可提升可见性
-      try {
-        var overlayFallbackPng = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer()
-      } catch {}
+      // 文本水印：将 SVG 栅格化成与目标尺寸同大小的透明 PNG
+      const svg = buildTextSVG(text, layout, targetW, targetH)
+      overlayInput = await sharp(Buffer.from(svg)).png().resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
     } else if (type === 'image' && image?.path) {
-      // 图片水印：缩放并放置在全画布透明图层上，再与原图复合
+      // 图片水印：缩放并放置在与目标尺寸相同的全画布透明图层上
       const wmm = await sharp(image.path).metadata()
       const scale = Math.max(0.01, image.scale || 1)
       const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
       const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
       const wmBuf = await sharp(image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
-      const pos = calcPosition(layout, W, H)
+      const pos = calcPosition(layout, targetW, targetH)
       // 将中心定位转换为左上角，并限制在画布内
       let left = Math.round(pos.left - ww / 2)
       let top = Math.round(pos.top - hh / 2)
-      left = Math.max(0, Math.min(W - ww, left))
-      top = Math.max(0, Math.min(H - hh, top))
+      left = Math.max(0, Math.min(targetW - ww, left))
+      top = Math.max(0, Math.min(targetH - hh, top))
       overlayInput = await sharp({
-        create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
+        create: { width: targetW, height: targetH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
       })
         .png()
         .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, image.opacity ?? 0.6)) }])
@@ -303,14 +339,38 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
         .toBuffer()
     }
 
-  // Composite: overlayBuffer 是整幅画布尺寸的 SVG，贴在 (0,0)
+  // 复合：overlay 必须与底图（已缩放到目标尺寸）完全一致大小
   if (!overlayInput) {
     console.warn('[export] No overlay generated for', inputPath, 'type:', type)
   }
   let composites = []
   if (overlayInput) composites.push({ input: overlayInput, top: 0, left: 0 })
-  if (typeof overlayFallbackPng !== 'undefined') composites.push({ input: overlayFallbackPng, top: 0, left: 0 })
-  let pipeline = composites.length ? img.composite(composites) : img
+  if (isDev) {
+    try { console.log('[export] base size =>', { W, H, targetW, targetH }) } catch {}
+  }
+  // 防御：在复合前检查所有图层尺寸
+  try {
+    for (const c of composites) {
+      const m = await sharp(c.input).metadata()
+      if (isDev) {
+        try { console.log('[export] overlay before check =>', { w: m.width, h: m.height }) } catch {}
+      }
+      if ((m.width && m.width !== targetW) || (m.height && m.height !== targetH)) {
+        if (isDev) console.warn('[export] overlay size mismatch, force-resize to base', { overlay: { w: m.width, h: m.height }, base: { W: targetW, H: targetH } })
+        c.input = await sharp(c.input).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
+        if (isDev) {
+          try {
+            const m2 = await sharp(c.input).metadata()
+            console.log('[export] overlay after fix =>', { w: m2.width, h: m2.height })
+          } catch {}
+        }
+      }
+    }
+  } catch (e) { if (isDev) console.warn('[export] overlay size check error', e) }
+  let pipeline = composites.length ? sharp(baseForComposite).composite(composites) : sharp(baseForComposite)
+  if (isDev) {
+    try { console.log('[export] expected output size =>', { width: targetW, height: targetH }) } catch {}
+  }
 
   // Output（生成唯一文件名，避免批量覆盖/并发写入冲突）
   let outputPath = uniqueOutputPath(inputPath)
@@ -336,7 +396,7 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
 // 生成压缩预览：按导出逻辑合成后，缩放到 480x300 的 contain 预览画布，并按指定 JPEG 质量编码
 ipcMain.handle('preview:render', async (_evt, payload) => {
   try {
-    const { inputPath, config, format, jpegQuality } = payload || {}
+    const { inputPath, config, format, jpegQuality, resize } = payload || {}
     const PREVIEW_W = 480, PREVIEW_H = 300
     // 先将原图按 EXIF 方向旋正到内存，获得准确的像素尺寸
     const baseBuf = await sharp(inputPath).rotate().toBuffer()
@@ -344,37 +404,70 @@ ipcMain.handle('preview:render', async (_evt, payload) => {
     const W = baseMeta.width || 0
     const H = baseMeta.height || 0
     if (!W || !H) throw new Error('invalid base dimensions')
-    // 构建覆盖层（与导出一致，包含 SVG + PNG 后备）
+    // 计算目标尺寸（与导出保持一致的规则）
+    let targetW = W
+    let targetH = H
+    try {
+      const mode = resize?.mode || 'original'
+      if (mode === 'custom') {
+        const wIn = Number(resize?.width)
+        const hIn = Number(resize?.height)
+        const hasW = Number.isFinite(wIn) && wIn > 0
+        const hasH = Number.isFinite(hIn) && hIn > 0
+        if (hasW && hasH) { targetW = Math.max(1, Math.round(wIn)); targetH = Math.max(1, Math.round(hIn)) }
+        else if (hasW && !hasH) { const w = Math.max(1, Math.round(wIn)); const s = w / W; targetW = w; targetH = Math.max(1, Math.round(H * s)) }
+        else if (!hasW && hasH) { const h = Math.max(1, Math.round(hIn)); const s = h / H; targetH = h; targetW = Math.max(1, Math.round(W * s)) }
+      } else if (mode === 'percent' && Number.isFinite(resize?.percent)) {
+        const p = Math.max(1, Math.round(Number(resize.percent)))
+        const s = p / 100
+        targetW = Math.max(1, Math.round(W * s))
+        targetH = Math.max(1, Math.round(H * s))
+      }
+    } catch {}
+    // 与导出一致：先得到目标尺寸底图
+    const baseForComposite = (targetW === W && targetH === H)
+      ? baseBuf
+      : await sharp(baseBuf).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
+    if (isDev) {
+      try { console.log('[preview] resize=%o', resize) } catch {}
+    }
+    // 构建与目标尺寸一致的覆盖层
     let overlayInput
-    let overlayFallbackPng
     if (config?.type === 'text') {
-      const svg = buildTextSVG(config.text, config.layout, W, H)
-      overlayInput = Buffer.from(svg)
-      try {
-        overlayFallbackPng = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer()
-      } catch {}
+      const svg = buildTextSVG(config.text, config.layout, targetW, targetH)
+      overlayInput = await sharp(Buffer.from(svg)).png().resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
     } else if (config?.type === 'image' && config?.image?.path) {
       const wmm = await sharp(config.image.path).metadata()
       const scale = Math.max(0.01, config.image.scale || 1)
       const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
       const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
       const wmBuf = await sharp(config.image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
-      const pos = calcPosition(config.layout, W, H)
+      const pos = calcPosition(config.layout, targetW, targetH)
       let left = Math.round(pos.left - ww / 2)
       let top = Math.round(pos.top - hh / 2)
-      left = Math.max(0, Math.min(W - ww, left))
-      top = Math.max(0, Math.min(H - hh, top))
-      overlayInput = await sharp({ create: { width: W, height: H, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+      left = Math.max(0, Math.min(targetW - ww, left))
+      top = Math.max(0, Math.min(targetH - hh, top))
+      overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
         .png()
         .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
         .png()
         .toBuffer()
     }
-    // 以旋正后的 baseBuf 为底图进行复合，避免尺寸不一致
+    // 复合前防御性尺寸校正（避免 overlay 尺寸漂移导致错误）
     let composites = []
-    if (overlayInput) composites.push({ input: overlayInput, left: 0, top: 0 })
-    if (typeof overlayFallbackPng !== 'undefined') composites.push({ input: overlayFallbackPng, left: 0, top: 0 })
-    let pipeline = composites.length ? sharp(baseBuf).composite(composites) : sharp(baseBuf)
+    if (overlayInput) {
+      try {
+        const md = await sharp(overlayInput).metadata()
+        if (isDev) { try { console.log('[preview] base/target =>', { W, H, targetW, targetH }); console.log('[preview] overlay before check =>', { w: md.width, h: md.height }) } catch {} }
+        if ((md.width && md.width !== targetW) || (md.height && md.height !== targetH)) {
+          overlayInput = await sharp(overlayInput).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
+          if (isDev) { try { const md2 = await sharp(overlayInput).metadata(); console.log('[preview] overlay after fix =>', { w: md2.width, h: md2.height }) } catch {} }
+        }
+      } catch {}
+      composites.push({ input: overlayInput, left: 0, top: 0 })
+    }
+    // 在目标尺寸上进行复合
+    let pipeline = composites.length ? sharp(baseForComposite).composite(composites) : sharp(baseForComposite)
     // 为了贴近最终效果：先按原尺寸进行一次有损 JPEG 编码（产生与最终一致的压缩伪影），
     // 然后解码并缩放到 480x300（contain），以 PNG 无损封装返回，避免再叠加一次 JPEG 失真。
     const q = Math.max(1, Math.min(100, Math.round(Number.isFinite(jpegQuality) ? Number(jpegQuality) : 90)))
