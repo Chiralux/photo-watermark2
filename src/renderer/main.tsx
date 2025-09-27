@@ -3,9 +3,17 @@ import { createRoot } from 'react-dom/client'
 
 type Template = {
   type: 'text' | 'image'
-  text?: { content: string; fontFamily?: string; fontSize?: number; opacity?: number; color?: string; baselineAdjust?: number }
+  text?: { content: string; fontFamily?: string; fontSize?: number; fontWeight?: number | 'normal' | 'bold'; fontStyle?: 'normal' | 'italic'; opacity?: number; color?: string; baselineAdjust?: number }
   image?: { path: string; opacity?: number; scale?: number }
   layout: { preset: string; offsetX?: number; offsetY?: number }
+}
+
+// 包装字体名：必要时加引号，并追加合理的回退字体栈
+function wrapFontFamily(name?: string) {
+  if (!name) return 'system-ui, Arial, sans-serif'
+  const needsQuote = /[\s,]/.test(name)
+  const quoted = needsQuote ? `"${name}"` : name
+  return `${quoted}, system-ui, Arial, sans-serif`
 }
 
 declare global {
@@ -72,6 +80,23 @@ function App() {
   const [showDebugAnchors, setShowDebugAnchors] = useState<boolean>(false)
   const [tplName, setTplName] = useState<string>('')
   const [tplList, setTplList] = useState<string[]>([])
+  const [fontList, setFontList] = useState<string[]>([])
+  const [fontAvailable, setFontAvailable] = useState<boolean>(true)
+  const commonFonts = useMemo(() => (
+    [
+      'Segoe UI', 'Microsoft YaHei', 'Arial', 'Helvetica', 'PingFang SC',
+      'SimSun', 'SimHei', 'Times New Roman', 'Courier New', 'Consolas'
+    ]
+  ), [])
+  const fontListPrioritized = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    commonFonts.forEach(f => { if (f && !seen.has(f)) { out.push(f); seen.add(f) } })
+    fontList.forEach(f => { if (f && !seen.has(f)) { out.push(f); seen.add(f) } })
+    return out
+  }, [fontList, commonFonts])
+  const fontListCommon = useMemo(() => fontListPrioritized.filter(f => commonFonts.includes(f)), [fontListPrioritized, commonFonts])
+  const fontListOthers = useMemo(() => fontListPrioritized.filter(f => !commonFonts.includes(f)), [fontListPrioritized, commonFonts])
   // 自动加载：'last' | 'default'，以及默认模板名
   const [autoLoad, setAutoLoad] = useState<'last' | 'default'>('last')
   const [defaultTplName, setDefaultTplName] = useState<string>('')
@@ -96,7 +121,7 @@ function App() {
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
-    text: { content: '© MyBrand', fontFamily: 'Arial', fontSize: 32, opacity: 0.6, color: '#FFFFFF', baselineAdjust: 0 },
+    text: { content: '© MyBrand', fontFamily: 'Arial', fontSize: 32, fontWeight: 'normal', fontStyle: 'normal', opacity: 0.6, color: '#FFFFFF', baselineAdjust: 0 },
     layout: { preset: 'center', offsetX: 0, offsetY: 0 },
   })
 
@@ -113,6 +138,19 @@ function App() {
         const names = await window.api.templates.list().catch(()=>[])
         setTplList(Array.isArray(names)? names : [])
         if (cfg.defaultName) setDefaultTplName(cfg.defaultName)
+  // 读取系统字体
+  try { const fs = await (window as any).api?.systemFonts?.list?.(); if (Array.isArray(fs)) setFontList(fs) } catch {}
+  // 检测当前选择字体是否可用（Chromium 字体加载 API）
+  useEffect(() => {
+    const fam = tpl.text?.fontFamily
+    if (!fam) { setFontAvailable(true); return }
+    let ok = true
+    try {
+      const fonts: any = (document as any).fonts
+      ok = fonts?.check ? !!fonts.check(`12px "${fam}"`) : true
+    } catch { ok = true }
+    setFontAvailable(ok)
+  }, [tpl.text?.fontFamily])
 
         // 读取元数据回退配置
         if ((window as any).api?.meta?.getFallbackConfig) {
@@ -431,7 +469,33 @@ function App() {
               </div>
               <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>拍摄时间：{currMeta?.dateTaken || '未读取'}{currMeta?.dateTaken ? (currMeta?.dateSource ? `（来源：${currMeta.dateSource}）` : '') : ''}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <label>字体
+                  <select value={tpl.text?.fontFamily || ''} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: e.target.value } })} style={{ maxWidth: 220, marginLeft: 6 }}>
+                    <option value="">系统默认</option>
+                    {fontListCommon.length>0 && (
+                      <optgroup label="常用">
+                        {fontListCommon.map(f => <option key={f} value={f}>{f}</option>)}
+                      </optgroup>
+                    )}
+                    {fontListOthers.length>0 && (
+                      <optgroup label="其它">
+                        {fontListOthers.map(f => <option key={f} value={f}>{f}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                </label>
+                {!!tpl.text?.fontFamily && (
+                  <span style={{ color: fontAvailable? '#2a7' : '#d77', fontSize: 12 }}>
+                    {fontAvailable ? '已加载' : '未检测到该字体（可能回退默认）'}
+                  </span>
+                )}
                 <label>字号 <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} style={{ width: 80 }} /></label>
+                <label>粗体
+                  <input type="checkbox" checked={(tpl.text?.fontWeight||'normal')!=='normal'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontWeight: e.target.checked ? 'bold' : 'normal' } })} style={{ marginLeft: 6 }} />
+                </label>
+                <label>斜体
+                  <input type="checkbox" checked={(tpl.text?.fontStyle||'normal')==='italic'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontStyle: e.target.checked ? 'italic' : 'normal' } })} style={{ marginLeft: 6 }} />
+                </label>
                 <label>不透明度 <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} style={{ width: 80 }} /></label>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   基线微调(px)
@@ -732,7 +796,9 @@ function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }:
             opacity: template.text?.opacity,
             fontSize: template.text?.fontSize,
             lineHeight: `${template.text?.fontSize || 32}px`,
-            fontFamily: template.text?.fontFamily,
+            fontFamily: wrapFontFamily(template.text?.fontFamily),
+            fontWeight: (template.text?.fontWeight as any) || 'normal',
+            fontStyle: (template.text?.fontStyle as any) || 'normal',
             cursor: 'move',
             userSelect: 'none',
             textShadow: '0 0 1px rgba(0,0,0,.2)'

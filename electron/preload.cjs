@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('api', {
   preview: {
     render: (payload) => ipcRenderer.invoke('preview:render', payload)
   },
+  systemFonts: {
+    list: () => ipcRenderer.invoke('systemFonts:list')
+  },
   meta: {
     getFallbackConfig: () => ipcRenderer.invoke('meta:getFallbackConfig'),
     setFallbackConfig: (cfg) => ipcRenderer.invoke('meta:setFallbackConfig', cfg)

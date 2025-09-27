@@ -14,6 +14,11 @@ let exifParser
 try { exifParser = require('exif-parser') } catch { exifParser = null }
 let exifr
 try { exifr = require('exifr') } catch { exifr = null }
+// 可选依赖：系统字体枚举
+let fontList
+try { fontList = require('font-list') } catch { fontList = null }
+let fontScanner
+try { fontScanner = require('font-scanner') } catch { fontScanner = null }
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -78,6 +83,45 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// 系统字体列表（用于渲染进程选择字体家族）
+ipcMain.handle('systemFonts:list', async () => {
+  try {
+    if (fontList && typeof fontList.getFonts === 'function') {
+      const fonts = await fontList.getFonts()
+      const families = Array.isArray(fonts) ? Array.from(new Set(fonts)).filter(Boolean).sort((a,b)=>a.localeCompare(b)) : []
+      if (families.length) return families
+    }
+    if (fontScanner && typeof fontScanner.getAvailableFontsSync === 'function') {
+      const fonts = fontScanner.getAvailableFontsSync()
+      // 仅返回家族名，去重并排序
+      const families = Array.from(new Set(fonts.map(f => f.family))).filter(Boolean).sort((a,b)=>a.localeCompare(b))
+      return families
+    }
+  } catch {}
+  // 兜底：简单扫描常见字体目录
+  try {
+    const dirs = []
+    const pushIf = (p)=>{ try { if (existsSync(p)) dirs.push(p) } catch {} }
+    if (process.platform === 'win32') {
+      pushIf(path.join(process.env.WINDIR || 'C:/Windows', 'Fonts'))
+    } else if (process.platform === 'darwin') {
+      pushIf('/System/Library/Fonts'); pushIf('/Library/Fonts'); pushIf(path.join(os.homedir(), 'Library/Fonts'))
+    } else {
+      pushIf('/usr/share/fonts'); pushIf('/usr/local/share/fonts'); pushIf(path.join(os.homedir(), '.fonts'))
+    }
+    const families = new Set()
+    const tryAdd = (name)=>{ if (!name) return; const fam = String(name).replace(/\.(ttf|otf|ttc)$/i,''); families.add(fam) }
+    for (const d of dirs) {
+      let list = []
+      try { list = readdirSync(d) } catch { continue }
+      for (const n of list) {
+        if (/\.(ttf|otf|ttc)$/i.test(n)) tryAdd(n)
+      }
+    }
+    return Array.from(families).sort((a,b)=>a.localeCompare(b))
+  } catch { return [] }
 })
 
 // Minimal IPC handlers
@@ -379,7 +423,8 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
       let q = 90
       if (Number.isFinite(jpegQuality)) q = Number(jpegQuality)
       q = Math.max(1, Math.min(100, Math.round(q || 0)))
-      pipeline = pipeline.jpeg({ quality: q })
+      // 为尽量贴近预览文本边缘效果：禁用色度子采样（4:4:4），并启用 mozjpeg
+      pipeline = pipeline.jpeg({ quality: q, chromaSubsampling: '4:4:4', mozjpeg: true })
     } else {
       pipeline = pipeline.png()
     }
@@ -470,8 +515,8 @@ ipcMain.handle('preview:render', async (_evt, payload) => {
     let pipeline = composites.length ? sharp(baseForComposite).composite(composites) : sharp(baseForComposite)
     // 为了贴近最终效果：先按原尺寸进行一次有损 JPEG 编码（产生与最终一致的压缩伪影），
     // 然后解码并缩放到 480x300（contain），以 PNG 无损封装返回，避免再叠加一次 JPEG 失真。
-    const q = Math.max(1, Math.min(100, Math.round(Number.isFinite(jpegQuality) ? Number(jpegQuality) : 90)))
-    const lossyJpeg = await pipeline.jpeg({ quality: q }).toBuffer()
+  const q = Math.max(1, Math.min(100, Math.round(Number.isFinite(jpegQuality) ? Number(jpegQuality) : 90)))
+  const lossyJpeg = await pipeline.jpeg({ quality: q, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer()
     const scaledPng = await sharp(lossyJpeg)
       .resize({ width: PREVIEW_W, height: PREVIEW_H, fit: 'contain', background: { r:255, g:255, b:255, alpha:1 } })
       .png()
@@ -619,6 +664,8 @@ function calcPosition(layout, W, H) {
 function buildTextSVG(text, layout, W, H) {
   const content = escapeHtml(text?.content || 'Watermark')
   const fontFamily = text?.fontFamily || 'Arial, Helvetica, sans-serif'
+  const fontFamilyAttr = /[\s,]/.test(fontFamily) ? `'${fontFamily}', Arial, Helvetica, sans-serif` : `${fontFamily}, Arial, Helvetica, sans-serif`
+  const fontFamilyAttrEscaped = escapeHtml(fontFamilyAttr)
   // 将预览中的字号（以预览画布像素计）按比例换算到原图像素：
   // 预览画布固定为 480x300（见 PreviewBox），使用 contain 缩放：scale = min(480/W, 300/H)
   // 预览 1 像素 ≈ 原图 1/scale 像素，因此导出字号 = 预览字号 / scale
@@ -628,6 +675,8 @@ function buildTextSVG(text, layout, W, H) {
   const fontSize = Math.max(8, (fontSizeRaw / (scalePreviewToImage || 1)))
   const color = text?.color || '#FFFFFF'
   const opacity = Math.max(0, Math.min(1, text?.opacity ?? 0.6))
+  const fontWeight = (text?.fontWeight ?? 'normal')
+  const fontStyle = (text?.fontStyle ?? 'normal')
   // 根据九宫格预设决定 SVG 文本的锚点与基线，和预览端保持一致
   function getSvgAnchors(preset) {
     switch (preset) {
@@ -670,7 +719,7 @@ function buildTextSVG(text, layout, W, H) {
   // Basic SVG text; advanced shadow/stroke可后续扩展
   return `<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-      <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamily}" font-size="${fontSize}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
+    <text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="${baseline}" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" paint-order="stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${Math.max(1, Math.round(fontSize/48))}">${content}</text>
   </svg>`
 }
 
