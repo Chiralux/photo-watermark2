@@ -539,6 +539,32 @@ function App() {
                   }}>使用拍摄时间</button>
                 </div>
               </div>
+              {/* 旋转设置 */}
+              <div style={{ marginTop: 8 }}>
+                <label style={{ fontWeight: 600 }}>旋转角度（度）</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                  <input
+                    type="range"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={tpl.text?.rotation ?? 0}
+                    onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
+                    style={{ flex: 1 }}
+                  />
+                  <input
+                    type="number"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={tpl.text?.rotation ?? 0}
+                    onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
+                    style={{ width: 72 }}
+                  />
+                  <button onClick={()=> setTpl({ ...tpl, text: { ...tpl.text!, rotation: 0 } })}>重置</button>
+                </div>
+                <div style={{ color:'#888', fontSize:12, marginTop:2 }}>支持任意角度旋转，正值顺时针，负值逆时针。</div>
+              </div>
               <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>拍摄时间：{currMeta?.dateTaken || '未读取'}{currMeta?.dateTaken ? (currMeta?.dateSource ? `（来源：${currMeta.dateSource}）` : '') : ''}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                 <label>字体
@@ -637,6 +663,20 @@ function App() {
                   </span>
                   <input type="number" step={1} value={tpl.text?.baselineAdjust ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjust: Number(e.target.value) } })} style={{ width: 100 }} />
                 </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  水平微调(px)
+                  <span
+                    style={{ display: 'inline-block', width: 16, height: 16, lineHeight: '16px', borderRadius: 8, background: '#e6f0ff', color: '#245', textAlign: 'center', cursor: 'default', fontSize: 12 }}
+                    title={
+                      '只影响导出图像的文字水平位置，不改变预览位置。\n' +
+                      '用途：当你发现导出的水印相对预览略偏左/偏右时，用它来做像素级校准。\n' +
+                      '正数：导出向右移动；负数：导出向左移动。\n' +
+                      '单位：预览像素（会自动按图片尺寸换算成原图像素）。'
+                    }
+                  >?
+                  </span>
+                  <input type="number" step={1} value={tpl.text?.baselineAdjustX ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjustX: Number(e.target.value) } })} style={{ width: 100 }} />
+                </label>
               </div>
               {/* 描边设置 */}
               <fieldset style={{ marginTop: 8, border: '1px solid #eee' }}>
@@ -684,6 +724,53 @@ function App() {
                 }}>选择图片...</button>
                 <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: '' } }))} disabled={!tpl.image?.path}>清除</button>
                 <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: 1, scaleX: 1, scaleY: 1 } }))}>重置缩放</button>
+              </div>
+              {/* 旋转设置 */}
+              <div style={{ marginTop: 8 }}>
+                <label style={{ fontWeight: 600 }}>旋转角度（度）</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                  <input
+                    type="range"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={tpl.image?.rotation ?? 0}
+                    onChange={e => setTpl(prev => ({
+                      ...prev,
+                      image: {
+                        ...(prev.image||{}),
+                        path: prev.image?.path || '',
+                        rotation: Number(e.target.value)
+                      }
+                    }))}
+                    style={{ flex: 1 }}
+                  />
+                  <input
+                    type="number"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={tpl.image?.rotation ?? 0}
+                    onChange={e => setTpl(prev => ({
+                      ...prev,
+                      image: {
+                        ...(prev.image||{}),
+                        path: prev.image?.path || '',
+                        rotation: Number(e.target.value)
+                      }
+                    }))}
+                    style={{ width: 72 }}
+                  />
+                  <button onClick={()=> setTpl(prev => ({
+                    ...prev,
+                    image: {
+                      ...(prev.image||{}),
+                      path: prev.image?.path || '',
+                      rotation: 0
+                    }
+                  }))}>重置</button>
+                </div>
+                <div style={{ color:'#888', fontSize:12, marginTop:2 }}>支持任意角度旋转，正值顺时针，负值逆时针。</div>
               </div>
               {tpl.image?.path ? (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

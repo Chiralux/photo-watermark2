@@ -12,9 +12,12 @@ export type Template = {
     italicSkewDeg?: number;
     opacity?: number;
     color?: string;
-    baselineAdjust?: number;
+  baselineAdjust?: number;
+  // 新增：仅影响导出/压缩预览的文字“水平微调”（单位：预览像素；会按比例换算至原图像素）
+  baselineAdjustX?: number;
     outline?: { enabled?: boolean; color?: string; width?: number; opacity?: number };
     shadow?: { enabled?: boolean; color?: string; offsetX?: number; offsetY?: number; blur?: number; opacity?: number };
+    rotation?: number; // 新增：水印旋转角度（度）
   }
   image?: {
     path: string;
@@ -27,6 +30,7 @@ export type Template = {
     // 自由缩放：分别的缩放因子（默认 1.0）
     scaleX?: number;
     scaleY?: number;
+    rotation?: number; // 新增：水印旋转角度（度）
   }
   layout: { preset: string; offsetX?: number; offsetY?: number; allowOverflow?: boolean }
 }

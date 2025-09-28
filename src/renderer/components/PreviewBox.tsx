@@ -86,6 +86,22 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
 
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
+  // 依据九宫格预设返回与导出逻辑一致的 CSS transform-origin
+  const transformOriginByPreset = (preset: string): string => {
+    switch (preset) {
+      case 'tl': return '0% 0%'
+      case 'tc': return '50% 0%'
+      case 'tr': return '100% 0%'
+      case 'cl': return '0% 50%'
+      case 'center': return '50% 50%'
+      case 'cr': return '100% 50%'
+      case 'bl': return '0% 100%'
+      case 'bc': return '50% 100%'
+      case 'br': return '100% 100%'
+      default: return '50% 50%'
+    }
+  }
+
   useEffect(() => {
     if (!geom || !template?.layout) return
     // 当允许越界时，不进行任何钳制，让 offset 可超出边界
@@ -164,7 +180,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             position: 'absolute',
             left: geom.xDisp,
             top: geom.yDisp,
-            // 计算缩放后在预览画布上的尺寸
+            transformOrigin: transformOriginByPreset(template.layout.preset),
             width: (()=>{
               const natW = wmSize?.w || 1
               const natH = wmSize?.h || 1
@@ -174,7 +190,6 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
                 return Math.max(1, Math.round(natW * sx * geom.scale))
               } else {
                 const s = Math.max(0.01, Number(template.image?.scale) || 1)
-                // 模拟 sharp inside 算法的舍入：先对目标盒子取整，再反推有效缩放，最后再取整尺寸
                 const ww1 = Math.max(1, Math.round(natW * s))
                 const hh1 = Math.max(1, Math.round(natH * s))
                 const sEff = Math.min(ww1 / natW, hh1 / natH)
@@ -198,17 +213,21 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
                 return Math.max(1, Math.round(hhEff * geom.scale))
               }
             })(),
-            transform: (
-              template.layout.preset === 'tl' ? 'translate(0, 0)' :
-              template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
-              template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
-              template.layout.preset === 'cl' ? 'translate(0, -50%)' :
-              template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
-              template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
-              template.layout.preset === 'bl' ? 'translate(0, -100%)' :
-              template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
-              'translate(-100%, -100%)'
-            ),
+            transform:
+              (
+                (template.layout.preset === 'tl' ? 'translate(0, 0)' :
+                template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
+                template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
+                template.layout.preset === 'cl' ? 'translate(0, -50%)' :
+                template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
+                template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
+                template.layout.preset === 'bl' ? 'translate(0, -100%)' :
+                template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
+                'translate(-100%, -100%)') +
+                (typeof template.image?.rotation === 'number' && !isNaN(template.image.rotation)
+                  ? ` rotate(${template.image.rotation}deg)`
+                  : '')
+              ),
             opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
             cursor: 'move',
             userSelect: 'none',
@@ -223,18 +242,23 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             position: 'absolute',
             left: geom.xDisp,
             top: geom.yDisp,
-            transform: (
-              template.layout.preset === 'tl' ? 'translate(0, 0)' :
-              template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
-              template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
-              template.layout.preset === 'cl' ? 'translate(0, -50%)' :
-              template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
-              template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
-              template.layout.preset === 'bl' ? 'translate(0, -100%)' :
-              template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
-              'translate(-100%, -100%)'
-            ) + (template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : ''),
-            transformOrigin: '50% 50%',
+            transformOrigin: transformOriginByPreset(template.layout.preset),
+            transform:
+              (
+                (template.layout.preset === 'tl' ? 'translate(0, 0)' :
+                template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
+                template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
+                template.layout.preset === 'cl' ? 'translate(0, -50%)' :
+                template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
+                template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
+                template.layout.preset === 'bl' ? 'translate(0, -100%)' :
+                template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
+                'translate(-100%, -100%)') +
+                (typeof template.text?.rotation === 'number' && !isNaN(template.text.rotation)
+                  ? ` rotate(${template.text.rotation}deg)`
+                  : '') +
+                (template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : '')
+              ),
             color: template.text?.color,
             opacity: template.text?.opacity,
             fontSize: template.text?.fontSize,
