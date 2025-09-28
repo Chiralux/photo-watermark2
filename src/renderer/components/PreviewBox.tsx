@@ -13,12 +13,20 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   const W = 480, H = 300, margin = 16
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [orientedSize, setOrientedSize] = useState<{ w: number; h: number } | null>(null)
+  const [wmSize, setWmSize] = useState<{ w: number; h: number } | null>(null)
 
   const fileUrl = useMemo(() => {
     if (!imagePath) return ''
     if (imagePath.startsWith('file:')) return imagePath
     return 'file:///' + encodeURI(imagePath.replace(/\\/g, '/'))
   }, [imagePath])
+
+  const wmUrl = useMemo(() => {
+    const p = template.type === 'image' ? template.image?.path : ''
+    if (!p) return ''
+    if (p.startsWith('file:')) return p
+    return 'file:///' + encodeURI(p.replace(/\\/g, '/'))
+  }, [template])
 
   const geom = useMemo(() => {
     const baseW = orientedSize?.w || imgSize?.w || W
@@ -44,7 +52,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     const ox = Math.round((W - dw) / 2)
     const oy = Math.round((H - dh) / 2)
 
-    function calcPosition(preset: string, offsetX = 0, offsetY = 0) {
+    function calcPosition(preset: string, offsetX = 0, offsetY = 0, clampInside = true) {
       let x = Math.floor(ow / 2), y = Math.floor(oh / 2)
       switch (preset) {
         case 'tl': x = margin; y = margin; break
@@ -57,12 +65,19 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
         case 'bc': x = Math.floor(ow / 2); y = Math.max(0, oh - margin); break
         case 'br': x = Math.max(0, ow - margin); y = Math.max(0, oh - margin); break
       }
-      const left = Math.max(0, Math.min(ow - 1, Math.round(x + (offsetX || 0))))
-      const top  = Math.max(0, Math.min(oh - 1, Math.round(y + (offsetY || 0))))
+      const rawLeft = Math.round(x + (offsetX || 0))
+      const rawTop  = Math.round(y + (offsetY || 0))
+      const left = clampInside ? Math.max(0, Math.min(ow - 1, rawLeft)) : rawLeft
+      const top  = clampInside ? Math.max(0, Math.min(oh - 1, rawTop)) : rawTop
       return { left, top }
     }
 
-    const pos = calcPosition(template.layout.preset, template.layout.offsetX || 0, template.layout.offsetY || 0)
+    const pos = calcPosition(
+      template.layout.preset,
+      template.layout.offsetX || 0,
+      template.layout.offsetY || 0,
+      !((template.layout as any)?.allowOverflow !== false) // 未设置或为 true 时不钳制
+    )
     const xDisp = ox + Math.round(pos.left * scale)
     const yDisp = oy + Math.round(pos.top * scale)
 
@@ -73,7 +88,9 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
 
   useEffect(() => {
     if (!geom || !template?.layout) return
-    const base = geom.calcPosition(template.layout.preset, 0, 0)
+    // 当允许越界时，不进行任何钳制，让 offset 可超出边界
+  if (((template.layout as any)?.allowOverflow !== false)) return
+    const base = geom.calcPosition(template.layout.preset, 0, 0, true)
     const minOffsetX = -base.left
     const maxOffsetX = (geom.ow - 1) - base.left
     const minOffsetY = -base.top
@@ -86,10 +103,13 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     if (nx !== curX || ny !== curY) {
       onChange({ ...template.layout, offsetX: nx, offsetY: ny })
     }
-  }, [geom.ow, geom.oh, template.layout.preset])
+  }, [geom.ow, geom.oh, template.layout.preset, (template.layout as any)?.allowOverflow])
 
   function handleDown(e: any) {
     dragging.current = { startX: e.clientX, startY: e.clientY, baseX: geom.xDisp, baseY: geom.yDisp }
+    // 绑定窗口级事件，允许鼠标移出容器仍然跟踪
+    window.addEventListener('mousemove', handleMove as any, { passive: false })
+    window.addEventListener('mouseup', handleUp as any, { passive: false, once: false })
     e.stopPropagation(); e.preventDefault()
   }
   function handleMove(e: any) {
@@ -98,20 +118,28 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     const dy = e.clientY - dragging.current.startY
     const minX = 0, maxX = W
     const minY = 0, maxY = H
-    const nx = Math.max(minX, Math.min(maxX, Math.round(dragging.current.baseX + dx)))
-    const ny = Math.max(minY, Math.min(maxY, Math.round(dragging.current.baseY + dy)))
+  // 允许越界时，不再将拖拽点钳制在容器内，最大限度还原真实偏移
+  const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
+  const nxRaw = Math.round(dragging.current.baseX + dx)
+  const nyRaw = Math.round(dragging.current.baseY + dy)
+  const nx = allowOverflow ? nxRaw : Math.max(minX, Math.min(maxX, nxRaw))
+  const ny = allowOverflow ? nyRaw : Math.max(minY, Math.min(maxY, nyRaw))
 
     const xOrig = (nx - geom.ox) / geom.scale
     const yOrig = (ny - geom.oy) / geom.scale
-    const base = geom.calcPosition(template.layout.preset, 0, 0)
+  const base = geom.calcPosition(template.layout.preset, 0, 0, true)
     const offsetX = Math.round(xOrig - base.left)
     const offsetY = Math.round(yOrig - base.top)
     onChange({ ...template.layout, offsetX, offsetY })
   }
-  function handleUp() { dragging.current = null }
+  function handleUp() {
+    dragging.current = null
+    window.removeEventListener('mousemove', handleMove as any)
+    window.removeEventListener('mouseup', handleUp as any)
+  }
 
   return (
-    <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', position: 'relative', overflow: 'hidden' }} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}>
+  <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', position: 'relative', overflow: 'hidden' }}>
       {!!fileUrl && (
         <img src={fileUrl} onLoad={async (e: any) => {
                 setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
@@ -126,6 +154,67 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
               }
             }
             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
+      )}
+      {template.type === 'image' && wmUrl && (
+        <img
+          src={wmUrl}
+          onLoad={(e:any)=> setWmSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          onMouseDown={handleDown}
+          style={{
+            position: 'absolute',
+            left: geom.xDisp,
+            top: geom.yDisp,
+            // 计算缩放后在预览画布上的尺寸
+            width: (()=>{
+              const natW = wmSize?.w || 1
+              const natH = wmSize?.h || 1
+              const mode = template.image?.scaleMode || 'proportional'
+              if (mode === 'free') {
+                const sx = Math.max(0.01, Number(template.image?.scaleX) || 1)
+                return Math.max(1, Math.round(natW * sx * geom.scale))
+              } else {
+                const s = Math.max(0.01, Number(template.image?.scale) || 1)
+                // 模拟 sharp inside 算法的舍入：先对目标盒子取整，再反推有效缩放，最后再取整尺寸
+                const ww1 = Math.max(1, Math.round(natW * s))
+                const hh1 = Math.max(1, Math.round(natH * s))
+                const sEff = Math.min(ww1 / natW, hh1 / natH)
+                const wwEff = Math.max(1, Math.round(natW * sEff))
+                return Math.max(1, Math.round(wwEff * geom.scale))
+              }
+            })(),
+            height: (()=>{
+              const natW = wmSize?.w || 1
+              const natH = wmSize?.h || 1
+              const mode = template.image?.scaleMode || 'proportional'
+              if (mode === 'free') {
+                const sy = Math.max(0.01, Number(template.image?.scaleY) || 1)
+                return Math.max(1, Math.round(natH * sy * geom.scale))
+              } else {
+                const s = Math.max(0.01, Number(template.image?.scale) || 1)
+                const ww1 = Math.max(1, Math.round(natW * s))
+                const hh1 = Math.max(1, Math.round(natH * s))
+                const sEff = Math.min(ww1 / natW, hh1 / natH)
+                const hhEff = Math.max(1, Math.round(natH * sEff))
+                return Math.max(1, Math.round(hhEff * geom.scale))
+              }
+            })(),
+            transform: (
+              template.layout.preset === 'tl' ? 'translate(0, 0)' :
+              template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
+              template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
+              template.layout.preset === 'cl' ? 'translate(0, -50%)' :
+              template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
+              template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
+              template.layout.preset === 'bl' ? 'translate(0, -100%)' :
+              template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
+              'translate(-100%, -100%)'
+            ),
+            opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
+            cursor: 'move',
+            userSelect: 'none',
+            pointerEvents: 'auto'
+          }}
+        />
       )}
       {template.type === 'text' && (
         <div

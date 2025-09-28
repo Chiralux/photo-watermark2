@@ -391,23 +391,59 @@ ipcMain.handle('export:applyWatermark', async (_evt, payload) => {
     } else if (type === 'image' && image?.path) {
       // 图片水印：缩放并放置在与目标尺寸相同的全画布透明图层上
       const wmm = await sharp(image.path).metadata()
-      const scale = Math.max(0.01, image.scale || 1)
-      const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
-      const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
-      const wmBuf = await sharp(image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
-      const pos = calcPosition(layout, targetW, targetH)
-      // 将中心定位转换为左上角，并限制在画布内
-      let left = Math.round(pos.left - ww / 2)
-      let top = Math.round(pos.top - hh / 2)
-      left = Math.max(0, Math.min(targetW - ww, left))
-      top = Math.max(0, Math.min(targetH - hh, top))
-      overlayInput = await sharp({
-        create: { width: targetW, height: targetH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
-      })
-        .png()
-        .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, image.opacity ?? 0.6)) }])
-        .png()
-        .toBuffer()
+      const mode = image.scaleMode || 'proportional'
+      let ww = 1, hh = 1, wmBuf
+      if (mode === 'free') {
+        const sx = Math.max(0.01, Number(image.scaleX) || 1)
+        const sy = Math.max(0.01, Number(image.scaleY) || 1)
+        ww = Math.max(1, Math.round((wmm.width || 1) * sx))
+        hh = Math.max(1, Math.round((wmm.height || 1) * sy))
+        wmBuf = await sharp(image.path).resize({ width: ww, height: hh, fit: 'fill' }).png().toBuffer()
+      } else {
+        const scale = Math.max(0.01, Number(image.scale) || 1)
+        ww = Math.max(1, Math.round((wmm.width || 1) * scale))
+        hh = Math.max(1, Math.round((wmm.height || 1) * scale))
+        wmBuf = await sharp(image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
+      }
+      // 使用实际输出尺寸（考虑 inside/fill 与取整后的真实像素）
+      try {
+        const mdReal = await sharp(wmBuf).metadata()
+        if (mdReal?.width) ww = mdReal.width
+        if (mdReal?.height) hh = mdReal.height
+      } catch {}
+  const pos = calcPosition(config.layout, targetW, targetH, !(config.layout?.allowOverflow !== false))
+      const { ax, ay } = getImageAnchorFactors(config.layout?.preset)
+      const rawLeft = Math.round(pos.left - ax * ww)
+      const rawTop  = Math.round(pos.top  - ay * hh)
+  const allowOverflow = (config.layout?.allowOverflow !== false)
+      if (allowOverflow) {
+        const destLeft = Math.max(0, rawLeft)
+        const destTop  = Math.max(0, rawTop)
+        const srcX = Math.max(0, -rawLeft)
+        const srcY = Math.max(0, -rawTop)
+        const visW = Math.max(0, Math.min(ww - srcX, targetW - destLeft))
+        const visH = Math.max(0, Math.min(hh - srcY, targetH - destTop))
+        if (visW > 0 && visH > 0) {
+          const piece = (srcX || srcY || visW !== ww || visH !== hh)
+            ? await sharp(wmBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
+            : wmBuf
+          overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+            .png()
+            .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+            .png()
+            .toBuffer()
+        } else {
+          overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } }).png().toBuffer()
+        }
+      } else {
+        let left = Math.max(0, Math.min(targetW - ww, rawLeft))
+        let top  = Math.max(0, Math.min(targetH - hh, rawTop))
+        overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+          .png()
+          .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+          .png()
+          .toBuffer()
+      }
     }
 
   // 复合：overlay 必须与底图（已缩放到目标尺寸）完全一致大小
@@ -510,20 +546,53 @@ ipcMain.handle('preview:render', async (_evt, payload) => {
       overlayInput = await sharp(Buffer.from(svg)).png().resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
     } else if (config?.type === 'image' && config?.image?.path) {
       const wmm = await sharp(config.image.path).metadata()
-      const scale = Math.max(0.01, config.image.scale || 1)
-      const ww = Math.max(1, Math.round((wmm.width || 1) * scale))
-      const hh = Math.max(1, Math.round((wmm.height || 1) * scale))
-      const wmBuf = await sharp(config.image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
-      const pos = calcPosition(config.layout, targetW, targetH)
-      let left = Math.round(pos.left - ww / 2)
-      let top = Math.round(pos.top - hh / 2)
-      left = Math.max(0, Math.min(targetW - ww, left))
-      top = Math.max(0, Math.min(targetH - hh, top))
-      overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
-        .png()
-        .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
-        .png()
-        .toBuffer()
+      const mode = config.image.scaleMode || 'proportional'
+      let ww = 1, hh = 1, wmBuf
+      if (mode === 'free') {
+        const sx = Math.max(0.01, Number(config.image.scaleX) || 1)
+        const sy = Math.max(0.01, Number(config.image.scaleY) || 1)
+        ww = Math.max(1, Math.round((wmm.width || 1) * sx))
+        hh = Math.max(1, Math.round((wmm.height || 1) * sy))
+        wmBuf = await sharp(config.image.path).resize({ width: ww, height: hh, fit: 'fill' }).png().toBuffer()
+      } else {
+        const scale = Math.max(0.01, Number(config.image.scale) || 1)
+        ww = Math.max(1, Math.round((wmm.width || 1) * scale))
+        hh = Math.max(1, Math.round((wmm.height || 1) * scale))
+        wmBuf = await sharp(config.image.path).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
+      }
+  const pos = calcPosition(config.layout, targetW, targetH, !(config.layout?.allowOverflow !== false))
+      const { ax, ay } = getImageAnchorFactors(config.layout?.preset)
+      const rawLeft = Math.round(pos.left - ax * ww)
+      const rawTop  = Math.round(pos.top  - ay * hh)
+  const allowOverflow = (config.layout?.allowOverflow !== false)
+      if (allowOverflow) {
+        const destLeft = Math.max(0, rawLeft)
+        const destTop  = Math.max(0, rawTop)
+        const srcX = Math.max(0, -rawLeft)
+        const srcY = Math.max(0, -rawTop)
+        const visW = Math.max(0, Math.min(ww - srcX, targetW - destLeft))
+        const visH = Math.max(0, Math.min(hh - srcY, targetH - destTop))
+        if (visW > 0 && visH > 0) {
+          const piece = (srcX || srcY || visW !== ww || visH !== hh)
+            ? await sharp(wmBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
+            : wmBuf
+          overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+            .png()
+            .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+            .png()
+            .toBuffer()
+        } else {
+          overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } }).png().toBuffer()
+        }
+      } else {
+        let left = Math.max(0, Math.min(targetW - ww, rawLeft))
+        let top  = Math.max(0, Math.min(targetH - hh, rawTop))
+        overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+          .png()
+          .composite([{ input: wmBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+          .png()
+          .toBuffer()
+      }
     }
     // 复合前防御性尺寸校正（避免 overlay 尺寸漂移导致错误）
     let composites = []
@@ -668,7 +737,7 @@ function buildOutputPath(inputPath, outputDir, naming, format) {
   return path.join(outputDir, `${name}${ext}`)
 }
 
-function calcPosition(layout, W, H) {
+function calcPosition(layout, W, H, clampInside = true) {
   const margin = 16
   const preset = layout?.preset || 'center'
   let x = Math.floor(W / 2), y = Math.floor(H / 2)
@@ -683,9 +752,27 @@ function calcPosition(layout, W, H) {
     case 'bc': x = Math.floor(W / 2); y = Math.max(0, H - margin); break
     case 'br': x = Math.max(0, W - margin); y = Math.max(0, H - margin); break
   }
-  const left = Math.max(0, Math.min(W - 1, Math.round(x + (layout?.offsetX || 0))))
-  const top = Math.max(0, Math.min(H - 1, Math.round(y + (layout?.offsetY || 0))))
+  const rawLeft = Math.round(x + (layout?.offsetX || 0))
+  const rawTop = Math.round(y + (layout?.offsetY || 0))
+  const left = clampInside ? Math.max(0, Math.min(W - 1, rawLeft)) : rawLeft
+  const top = clampInside ? Math.max(0, Math.min(H - 1, rawTop)) : rawTop
   return { left, top }
+}
+
+// 根据九宫格预设返回图片水印的锚点系数（0=左/上，0.5=中，1=右/下）
+function getImageAnchorFactors(preset) {
+  switch (preset) {
+    case 'tl': return { ax: 0,   ay: 0 }
+    case 'tc': return { ax: 0.5, ay: 0 }
+    case 'tr': return { ax: 1,   ay: 0 }
+    case 'cl': return { ax: 0,   ay: 0.5 }
+    case 'center': return { ax: 0.5, ay: 0.5 }
+    case 'cr': return { ax: 1,   ay: 0.5 }
+    case 'bl': return { ax: 0,   ay: 1 }
+    case 'bc': return { ax: 0.5, ay: 1 }
+    case 'br': return { ax: 1,   ay: 1 }
+    default: return { ax: 0.5, ay: 0.5 }
+  }
 }
 
 function buildTextSVG(text, layout, W, H) {
@@ -746,7 +833,7 @@ function buildTextSVG(text, layout, W, H) {
   }
   const { anchor, baseline, vAlign } = getSvgAnchors(layout?.preset)
   // 使用真实的偏移量，确保与预览拖拽保持一致
-  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H)
+  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H, !(layout?.allowOverflow))
   const x = left
   let y = top
     // 为不同垂直对齐做补偿：许多 SVG 渲染器（如 librsvg）会忽略 dominant-baseline，

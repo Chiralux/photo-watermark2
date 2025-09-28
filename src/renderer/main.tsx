@@ -138,7 +138,7 @@ function App() {
       outline: { enabled: false, color: '#000000', width: 1, opacity: 0.25 },
       shadow: { enabled: false, color: '#000000', offsetX: 1, offsetY: 1, blur: 2, opacity: 0.3 },
     },
-    layout: { preset: 'center', offsetX: 0, offsetY: 0 },
+    layout: { preset: 'center', offsetX: 0, offsetY: 0, allowOverflow: true },
   })
 
   // 启动时加载上次模板 + 字体列表 + 配置
@@ -672,6 +672,118 @@ function App() {
             </div>
           )}
 
+          {tpl.type === 'image' && (
+            <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={async ()=>{
+                  if (!hasApi()) { alert('预加载未生效：无法访问系统文件对话框。'); return }
+                  const paths = await window.api.openFiles()
+                  const p = Array.isArray(paths) && paths[0] ? paths[0] : ''
+                  if (!p) return
+                  setTpl(prev => ({ ...prev, type: 'image', image: { ...(prev.image||{}), path: p, opacity: prev.image?.opacity ?? 0.6, scale: prev.image?.scale ?? 1, scaleMode: prev.image?.scaleMode || 'proportional', scaleX: prev.image?.scaleX ?? 1, scaleY: prev.image?.scaleY ?? 1 } }))
+                }}>选择图片...</button>
+                <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: '' } }))} disabled={!tpl.image?.path}>清除</button>
+                <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: 1, scaleX: 1, scaleY: 1 } }))}>重置缩放</button>
+              </div>
+              {tpl.image?.path ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ width: 48, height: 48, border: '1px solid #eee', borderRadius: 4, overflow: 'hidden', background: '#f3f3f3' }}>
+                    <img
+                      src={tpl.image.path.startsWith('file:')? tpl.image.path : ('file:///' + encodeURI(tpl.image.path.replace(/\\/g,'/')))}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', imageOrientation: 'from-image' as any }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, color: '#555' }} title={tpl.image.path}>
+                    {(tpl.image.path.split(/\\/).pop())}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: '#888' }}>未选择图片。建议使用带透明通道的 PNG 作为水印 Logo。</div>
+              )}
+
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>缩放模式</div>
+                <label><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='proportional'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'proportional' } }))} /> 等比</label>
+                <label style={{ marginLeft: 12 }}><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='free'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free' } }))} /> 自由</label>
+              </div>
+
+              {(tpl.image?.scaleMode||'proportional') === 'proportional' ? (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    缩放（%）
+                    <input
+                      type="number" min={1} max={1000} step={1}
+                      value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
+                      onChange={(e:any)=>{
+                        const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                        setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
+                      }}
+                      style={{ width: 96 }}
+                    />
+                  </label>
+                  <input type="range" min={1} max={400} step={1}
+                    value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
+                    onChange={(e:any)=>{
+                      const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                      setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <label>
+                      宽度（%）
+                      <input
+                        type="number" min={1} max={1000} step={1}
+                        value={Math.max(1, Math.round((tpl.image?.scaleX ?? 1) * 100))}
+                        onChange={(e:any)=>{
+                          const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                          setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free', scaleX: pct/100 } }))
+                        }}
+                        style={{ width: 96, marginLeft: 6 }}
+                      />
+                    </label>
+                    <label>
+                      高度（%）
+                      <input
+                        type="number" min={1} max={1000} step={1}
+                        value={Math.max(1, Math.round((tpl.image?.scaleY ?? 1) * 100))}
+                        onChange={(e:any)=>{
+                          const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                          setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free', scaleY: pct/100 } }))
+                        }}
+                        style={{ width: 96, marginLeft: 6 }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>不透明度</span>
+                  <input type="number" min={0} max={100} step={1}
+                    value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
+                    onChange={(e:any)=>{
+                      const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
+                      setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
+                    }}
+                    style={{ width: 72 }}
+                  />
+                </div>
+                <input type="range" min={0} max={100} step={1}
+                  value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
+                  onChange={(e:any)=>{
+                    const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
+                    setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 12 }}>
             <div>九宫格</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
@@ -688,6 +800,10 @@ function App() {
               <label>Y偏移 <input type="number" value={tpl.layout.offsetY || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetY: Number(e.target.value) } })} style={{ width: 80 }} /></label>
               <button onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: 0, offsetY: 0 } })}>重置偏移</button>
             </div>
+            <label style={{ display: 'block', marginTop: 6 }}>
+              <input type="checkbox" checked={!!tpl.layout.allowOverflow} onChange={(e:any)=> setTpl({ ...tpl, layout: { ...tpl.layout, allowOverflow: !!e.target.checked } })} />
+              允许水印越界显示（仅显示可见部分）
+            </label>
           </div>
 
           <h3 style={{ marginTop: 16 }}>导出</h3>
