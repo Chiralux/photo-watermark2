@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, promises as fsp } from 'n
 import os from 'node:os'
 import sharp from 'sharp'
 import PQueue from 'p-queue'
+import { calcPosition as calcPositionUnified, getImageAnchorFactors as getAnchorUnified } from './watermark-geometry.js'
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 let exifReader
@@ -786,43 +787,10 @@ function buildOutputPath(inputPath, outputDir, naming, format) {
   return path.join(outputDir, `${name}${ext}`)
 }
 
-function calcPosition(layout, W, H, clampInside = true) {
-  const margin = 16
-  const preset = layout?.preset || 'center'
-  let x = Math.floor(W / 2), y = Math.floor(H / 2)
-  switch (preset) {
-    case 'tl': x = margin; y = margin; break
-    case 'tc': x = Math.floor(W / 2); y = margin; break
-    case 'tr': x = Math.max(0, W - margin); y = margin; break
-    case 'cl': x = margin; y = Math.floor(H / 2); break
-    case 'center': x = Math.floor(W / 2); y = Math.floor(H / 2); break
-    case 'cr': x = Math.max(0, W - margin); y = Math.floor(H / 2); break
-    case 'bl': x = margin; y = Math.max(0, H - margin); break
-    case 'bc': x = Math.floor(W / 2); y = Math.max(0, H - margin); break
-    case 'br': x = Math.max(0, W - margin); y = Math.max(0, H - margin); break
-  }
-  const rawLeft = Math.round(x + (layout?.offsetX || 0))
-  const rawTop = Math.round(y + (layout?.offsetY || 0))
-  const left = clampInside ? Math.max(0, Math.min(W - 1, rawLeft)) : rawLeft
-  const top = clampInside ? Math.max(0, Math.min(H - 1, rawTop)) : rawTop
-  return { left, top }
-}
+const calcPosition = (...args) => calcPositionUnified(...args)
 
 // 根据九宫格预设返回图片水印的锚点系数（0=左/上，0.5=中，1=右/下）
-function getImageAnchorFactors(preset) {
-  switch (preset) {
-    case 'tl': return { ax: 0,   ay: 0 }
-    case 'tc': return { ax: 0.5, ay: 0 }
-    case 'tr': return { ax: 1,   ay: 0 }
-    case 'cl': return { ax: 0,   ay: 0.5 }
-    case 'center': return { ax: 0.5, ay: 0.5 }
-    case 'cr': return { ax: 1,   ay: 0.5 }
-    case 'bl': return { ax: 0,   ay: 1 }
-    case 'bc': return { ax: 0.5, ay: 1 }
-    case 'br': return { ax: 1,   ay: 1 }
-    default: return { ax: 0.5, ay: 0.5 }
-  }
-}
+const getImageAnchorFactors = (...args) => getAnchorUnified(...args)
 
 function buildTextSVG(text, layout, W, H) {
   const content = escapeHtml(text?.content || 'Watermark')

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Template, ResizeConfig } from '../types/template'
-import { hexToRgba } from '../utils/color'
-import { wrapFontFamily } from '../utils/font'
+import { usePreviewGeometry } from '../hooks/usePreviewGeometry'
+import { ImageWatermarkPreview } from './ImageWatermarkPreview'
+import { TextWatermarkPreview } from './TextWatermarkPreview'
 
 export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }: {
   template: Template
@@ -28,79 +29,11 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     return 'file:///' + encodeURI(p.replace(/\\/g, '/'))
   }, [template])
 
-  const geom = useMemo(() => {
-    const baseW = orientedSize?.w || imgSize?.w || W
-    const baseH = orientedSize?.h || imgSize?.h || H
-    let ow = baseW, oh = baseH
-    if (resize?.mode === 'percent' && Number.isFinite(resize?.percent)) {
-      const p = Math.max(1, Math.round(Number(resize.percent)))
-      const r = p / 100
-      ow = Math.max(1, Math.round(baseW * r))
-      oh = Math.max(1, Math.round(baseH * r))
-    } else if (resize?.mode === 'custom') {
-      const wIn = Number(resize?.width)
-      const hIn = Number(resize?.height)
-      const hasW = Number.isFinite(wIn) && wIn > 0
-      const hasH = Number.isFinite(hIn) && hIn > 0
-      if (hasW && hasH) { ow = Math.round(wIn); oh = Math.round(hIn) }
-      else if (hasW && !hasH) { const s = Math.max(1, Math.round(wIn)) / baseW; ow = Math.max(1, Math.round(wIn)); oh = Math.max(1, Math.round(baseH * s)) }
-      else if (!hasW && hasH) { const s = Math.max(1, Math.round(hIn)) / baseH; oh = Math.max(1, Math.round(hIn)); ow = Math.max(1, Math.round(baseW * s)) }
-    }
-    const scale = Math.min(W / ow, H / oh)
-    const dw = Math.round(ow * scale)
-    const dh = Math.round(oh * scale)
-    const ox = Math.round((W - dw) / 2)
-    const oy = Math.round((H - dh) / 2)
-
-    function calcPosition(preset: string, offsetX = 0, offsetY = 0, clampInside = true) {
-      let x = Math.floor(ow / 2), y = Math.floor(oh / 2)
-      switch (preset) {
-        case 'tl': x = margin; y = margin; break
-        case 'tc': x = Math.floor(ow / 2); y = margin; break
-        case 'tr': x = Math.max(0, ow - margin); y = margin; break
-        case 'cl': x = margin; y = Math.floor(oh / 2); break
-        case 'center': x = Math.floor(ow / 2); y = Math.floor(oh / 2); break
-        case 'cr': x = Math.max(0, ow - margin); y = Math.floor(oh / 2); break
-        case 'bl': x = margin; y = Math.max(0, oh - margin); break
-        case 'bc': x = Math.floor(ow / 2); y = Math.max(0, oh - margin); break
-        case 'br': x = Math.max(0, ow - margin); y = Math.max(0, oh - margin); break
-      }
-      const rawLeft = Math.round(x + (offsetX || 0))
-      const rawTop  = Math.round(y + (offsetY || 0))
-      const left = clampInside ? Math.max(0, Math.min(ow - 1, rawLeft)) : rawLeft
-      const top  = clampInside ? Math.max(0, Math.min(oh - 1, rawTop)) : rawTop
-      return { left, top }
-    }
-
-    const pos = calcPosition(
-      template.layout.preset,
-      template.layout.offsetX || 0,
-      template.layout.offsetY || 0,
-      !((template.layout as any)?.allowOverflow !== false) // 未设置或为 true 时不钳制
-    )
-    const xDisp = ox + Math.round(pos.left * scale)
-    const yDisp = oy + Math.round(pos.top * scale)
-
-    return { ow, oh, scale, dw, dh, ox, oy, xDisp, yDisp, calcPosition }
-  }, [imgSize, orientedSize, template, resize])
+  const geom = usePreviewGeometry(W, H, margin, imgSize, orientedSize, template, resize)
 
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
-  // 依据九宫格预设返回与导出逻辑一致的 CSS transform-origin
-  const transformOriginByPreset = (preset: string): string => {
-    switch (preset) {
-      case 'tl': return '0% 0%'
-      case 'tc': return '50% 0%'
-      case 'tr': return '100% 0%'
-      case 'cl': return '0% 50%'
-      case 'center': return '50% 50%'
-      case 'cr': return '100% 50%'
-      case 'bl': return '0% 100%'
-      case 'bc': return '50% 100%'
-      case 'br': return '100% 100%'
-      default: return '50% 50%'
-    }
-  }
+  // transformOriginByPreset 已迁移至 utils/anchor
 
   useEffect(() => {
     if (!geom || !template?.layout) return
@@ -172,113 +105,21 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
       )}
       {template.type === 'image' && wmUrl && (
-        (() => {
-          // 计算锚点像素（与主进程一致）
-          const natW = wmSize?.w || 1
-          const natH = wmSize?.h || 1
-          const mode = template.image?.scaleMode || 'proportional'
-          let ww = natW, hh = natH
-          if (mode === 'free') {
-            const sx = Math.max(0.01, Number(template.image?.scaleX) || 1)
-            const sy = Math.max(0.01, Number(template.image?.scaleY) || 1)
-            ww = Math.max(1, Math.round(natW * sx))
-            hh = Math.max(1, Math.round(natH * sy))
-          } else {
-            const s = Math.max(0.01, Number(template.image?.scale) || 1)
-            ww = Math.max(1, Math.round(natW * s))
-            hh = Math.max(1, Math.round(natH * s))
-          }
-          // 预览缩放
-          const wDisp = Math.max(1, Math.round(ww * geom.scale))
-          const hDisp = Math.max(1, Math.round(hh * geom.scale))
-          // 九宫格锚点
-          const preset = template.layout.preset
-          const anchorMap = {
-            tl: [0, 0], tc: [0.5, 0], tr: [1, 0],
-            cl: [0, 0.5], center: [0.5, 0.5], cr: [1, 0.5],
-            bl: [0, 1], bc: [0.5, 1], br: [1, 1]
-          }
-          const anchorPresets = ['tl','tc','tr','cl','center','cr','bl','bc','br'] as const;
-          type AnchorPreset = typeof anchorPresets[number];
-          const [ax, ay] = anchorMap[(preset as AnchorPreset)] || [0.5, 0.5]
-          // 旋转中心像素（锚点）
-          const anchorX = ax * wDisp
-          const anchorY = ay * hDisp
-          // 旋转后，锚点应落在预览定位点
-          const left = geom.xDisp
-          const top = geom.yDisp
-          // transform-origin 用像素
-          const transformOrigin = `${anchorX}px ${anchorY}px`
-          // translate 使锚点对齐定位点
-          const translateX = left - anchorX
-          const translateY = top - anchorY
-          // 旋转
-          const rotation = typeof template.image?.rotation === 'number' && !isNaN(template.image.rotation)
-            ? template.image.rotation : 0
-          return (
-            <img
-              src={wmUrl}
-              onLoad={(e:any)=> setWmSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-              onMouseDown={handleDown}
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                width: wDisp,
-                height: hDisp,
-                transformOrigin,
-                transform: `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg)`,
-                opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
-                cursor: 'move',
-                userSelect: 'none',
-                pointerEvents: 'auto'
-              }}
-            />
-          )
-        })()
+        <ImageWatermarkPreview
+          wmUrl={wmUrl}
+          wmSize={wmSize}
+          setWmSize={(s)=> setWmSize(s)}
+          geom={{ xDisp: geom.xDisp, yDisp: geom.yDisp, scale: geom.scale }}
+          template={template}
+          onMouseDown={handleDown}
+        />
       )}
       {template.type === 'text' && (
-        <div
+        <TextWatermarkPreview
+          geom={{ xDisp: geom.xDisp, yDisp: geom.yDisp }}
+          template={template}
           onMouseDown={handleDown}
-          style={{
-            position: 'absolute',
-            left: geom.xDisp,
-            top: geom.yDisp,
-            transformOrigin: transformOriginByPreset(template.layout.preset),
-            transform:
-              (
-                (template.layout.preset === 'tl' ? 'translate(0, 0)' :
-                template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
-                template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
-                template.layout.preset === 'cl' ? 'translate(0, -50%)' :
-                template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
-                template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
-                template.layout.preset === 'bl' ? 'translate(0, -100%)' :
-                template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
-                'translate(-100%, -100%)') +
-                (typeof template.text?.rotation === 'number' && !isNaN(template.text.rotation)
-                  ? ` rotate(${template.text.rotation}deg)`
-                  : '') +
-                (template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : '')
-              ),
-            color: template.text?.color,
-            opacity: template.text?.opacity,
-            fontSize: template.text?.fontSize,
-            lineHeight: `${template.text?.fontSize || 32}px`,
-            fontFamily: wrapFontFamily(template.text?.fontFamily),
-            fontWeight: (template.text?.fontWeight as any) || 'normal',
-            fontStyle: (template.text?.fontStyle as any) || 'normal',
-            WebkitTextStroke: (template.text?.outline?.enabled ? `${Math.max(0, template.text?.outline?.width || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}` : undefined) as any,
-            textShadow: (template.text?.shadow?.enabled
-              ? `${Math.round(template.text?.shadow?.offsetX || 0)}px ${Math.round(template.text?.shadow?.offsetY || 0)}px ${Math.max(0, template.text?.shadow?.blur || 0)}px ${hexToRgba(template.text?.shadow?.color, template.text?.shadow?.opacity ?? 1)}`
-              : '0 0 1px rgba(0,0,0,.2)'
-            ),
-            cursor: 'move',
-            userSelect: 'none',
-          }}
-        >
-          {template.text?.content}
-        </div>
+        />
       )}
 
       {showDebugAnchors && (
