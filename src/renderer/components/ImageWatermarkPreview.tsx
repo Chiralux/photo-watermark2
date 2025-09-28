@@ -45,6 +45,7 @@ export function ImageWatermarkPreview({
   const anchorX = ax * wDisp
   const anchorY = ay * hDisp
 
+  // 在裁剪容器内渲染：geom.xDisp/geom.yDisp 已是相对容器的局部坐标
   const left = geom.xDisp
   const top = geom.yDisp
   const transformOrigin = `${anchorX}px ${anchorY}px`
@@ -60,8 +61,9 @@ export function ImageWatermarkPreview({
       onMouseDown={onMouseDown}
       style={{
         position: 'absolute',
-        left: 0,
-        top: 0,
+  // 以容器左上为(0,0)，再通过 translate 将锚点移动到局部坐标
+  left: 0,
+  top: 0,
         width: wDisp,
         height: hDisp,
         transformOrigin,

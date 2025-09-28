@@ -63,11 +63,14 @@ export function usePreviewGeometry(
       return { left, top }
     }
 
+    const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
+    // clampInside: 当允许越界时 false（不钳制）；否则 true（钳制）
+    const clampInside = !allowOverflow
     const pos = calcPosition(
       template.layout.preset,
       template.layout.offsetX || 0,
       template.layout.offsetY || 0,
-      !((template.layout as any)?.allowOverflow !== false)
+      clampInside
     )
     const xDisp = ox + Math.round(pos.left * scale)
     const yDisp = oy + Math.round(pos.top * scale)

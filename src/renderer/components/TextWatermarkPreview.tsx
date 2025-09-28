@@ -21,6 +21,41 @@ export function TextWatermarkPreview({
   const rotation = typeof template.text?.rotation === 'number' && !isNaN(template.text.rotation)
     ? template.text.rotation : 0
 
+  // 与导出端 svg 文本逻辑对齐：根据九宫格确定 vAlign，并做基线/水平微调
+  function getVAlignByPreset(preset: string): 'top'|'middle'|'bottom' {
+    switch (preset) {
+      case 'tl':
+      case 'tc':
+      case 'tr':
+        return 'top'
+      case 'cl':
+      case 'center':
+      case 'cr':
+        return 'middle'
+      case 'bl':
+      case 'bc':
+      case 'br':
+        return 'bottom'
+      default:
+        return 'middle'
+    }
+  }
+  const vAlign = getVAlignByPreset(template.layout.preset)
+  const fontSize = Number(template.text?.fontSize || 32)
+  let dyAdjust = 0
+  if (vAlign === 'top') dyAdjust = Math.round(fontSize * 0.8)
+  else if (vAlign === 'middle') dyAdjust = fontSize * 0.40
+  else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSize * 0.2)
+
+  // 预览端直接使用像素，不需要缩放换算
+  if (Number.isFinite(template.text?.baselineAdjust)) {
+    dyAdjust += Number(template.text!.baselineAdjust)
+  }
+  let dxAdjust = 0
+  if (Number.isFinite(template.text?.baselineAdjustX)) {
+    dxAdjust += Number(template.text!.baselineAdjustX)
+  }
+
   const translate = (
     template.layout.preset === 'tl' ? 'translate(0, 0)' :
     template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
@@ -40,18 +75,22 @@ export function TextWatermarkPreview({
       onMouseDown={onMouseDown}
       style={{
         position: 'absolute',
+        // 直接使用容器内的局部坐标
         left: geom.xDisp,
         top: geom.yDisp,
         transformOrigin: transformOriginByPreset(template.layout.preset),
         transform,
         color: template.text?.color,
-        opacity: template.text?.opacity,
+        opacity: template.text?.opacity ?? 0.6,
         fontSize: template.text?.fontSize,
         lineHeight: `${template.text?.fontSize || 32}px`,
         fontFamily: wrapFontFamily(template.text?.fontFamily),
         fontWeight: (template.text?.fontWeight as any) || 'normal',
         fontStyle: (template.text?.fontStyle as any) || 'normal',
-        WebkitTextStroke: (template.text?.outline?.enabled ? `${Math.max(0, template.text?.outline?.width || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}` : undefined) as any,
+        WebkitTextStroke: (template.text?.outline?.enabled
+          ? `${Math.max(0, template.text?.outline?.width || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}`
+          : undefined
+        ) as any,
         textShadow: (template.text?.shadow?.enabled
           ? `${Math.round(template.text?.shadow?.offsetX || 0)}px ${Math.round(template.text?.shadow?.offsetY || 0)}px ${Math.max(0, template.text?.shadow?.blur || 0)}px ${hexToRgba(template.text?.shadow?.color, template.text?.shadow?.opacity ?? 1)}`
           : '0 0 1px rgba(0,0,0,.2)'

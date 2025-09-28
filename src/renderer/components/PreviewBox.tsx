@@ -31,6 +31,20 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
 
   const geom = usePreviewGeometry(W, H, margin, imgSize, orientedSize, template, resize)
 
+  // 计算当前锚点在“底图局部坐标系”中的像素位置（用于在裁剪容器内定位）
+  const currPos = useMemo(() => {
+    return geom.calcPosition(
+      template.layout.preset,
+      template.layout.offsetX || 0,
+      template.layout.offsetY || 0,
+      !((template.layout as any)?.allowOverflow !== false) // 与导出/预览一致：allowOverflow=>不钳制
+    )
+  }, [geom, template.layout])
+  const xLocal = Math.round(currPos.left * geom.scale)
+  const yLocal = Math.round(currPos.top  * geom.scale)
+  const xAbs = geom.ox + xLocal
+  const yAbs = geom.oy + yLocal
+
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
   // transformOriginByPreset 已迁移至 utils/anchor
@@ -38,7 +52,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   useEffect(() => {
     if (!geom || !template?.layout) return
     // 当允许越界时，不进行任何钳制，让 offset 可超出边界
-  if (((template.layout as any)?.allowOverflow !== false)) return
+    if (((template.layout as any)?.allowOverflow !== false)) return
     const base = geom.calcPosition(template.layout.preset, 0, 0, true)
     const minOffsetX = -base.left
     const maxOffsetX = (geom.ow - 1) - base.left
@@ -55,7 +69,8 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   }, [geom.ow, geom.oh, template.layout.preset, (template.layout as any)?.allowOverflow])
 
   function handleDown(e: any) {
-    dragging.current = { startX: e.clientX, startY: e.clientY, baseX: geom.xDisp, baseY: geom.yDisp }
+    // 以“当前锚点在预览容器中的绝对位置”为拖拽基准，保持与旧逻辑一致
+    dragging.current = { startX: e.clientX, startY: e.clientY, baseX: xAbs, baseY: yAbs }
     // 绑定窗口级事件，允许鼠标移出容器仍然跟踪
     window.addEventListener('mousemove', handleMove as any, { passive: false })
     window.addEventListener('mouseup', handleUp as any, { passive: false, once: false })
@@ -67,16 +82,16 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     const dy = e.clientY - dragging.current.startY
     const minX = 0, maxX = W
     const minY = 0, maxY = H
-  // 允许越界时，不再将拖拽点钳制在容器内，最大限度还原真实偏移
-  const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
-  const nxRaw = Math.round(dragging.current.baseX + dx)
-  const nyRaw = Math.round(dragging.current.baseY + dy)
-  const nx = allowOverflow ? nxRaw : Math.max(minX, Math.min(maxX, nxRaw))
-  const ny = allowOverflow ? nyRaw : Math.max(minY, Math.min(maxY, nyRaw))
+    // 允许越界时，不再将拖拽点钳制在容器内，最大限度还原真实偏移
+    const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
+    const nxRaw = Math.round(dragging.current.baseX + dx)
+    const nyRaw = Math.round(dragging.current.baseY + dy)
+    const nx = allowOverflow ? nxRaw : Math.max(minX, Math.min(maxX, nxRaw))
+    const ny = allowOverflow ? nyRaw : Math.max(minY, Math.min(maxY, nyRaw))
 
     const xOrig = (nx - geom.ox) / geom.scale
     const yOrig = (ny - geom.oy) / geom.scale
-  const base = geom.calcPosition(template.layout.preset, 0, 0, true)
+    const base = geom.calcPosition(template.layout.preset, 0, 0, true)
     const offsetX = Math.round(xOrig - base.left)
     const offsetY = Math.round(yOrig - base.top)
     onChange({ ...template.layout, offsetX, offsetY })
@@ -104,23 +119,26 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             }
             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
       )}
-      {template.type === 'image' && wmUrl && (
-        <ImageWatermarkPreview
-          wmUrl={wmUrl}
-          wmSize={wmSize}
-          setWmSize={(s)=> setWmSize(s)}
-          geom={{ xDisp: geom.xDisp, yDisp: geom.yDisp, scale: geom.scale }}
-          template={template}
-          onMouseDown={handleDown}
-        />
-      )}
-      {template.type === 'text' && (
-        <TextWatermarkPreview
-          geom={{ xDisp: geom.xDisp, yDisp: geom.yDisp }}
-          template={template}
-          onMouseDown={handleDown}
-        />
-      )}
+      {/* 水印包裹在与底图一致位置/尺寸的裁剪容器中，越界部分将被裁掉，与导出/压缩预览一致 */}
+  <div style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, overflow: 'hidden', pointerEvents: 'auto' }}>
+        {template.type === 'image' && wmUrl && (
+          <ImageWatermarkPreview
+            wmUrl={wmUrl}
+            wmSize={wmSize}
+            setWmSize={(s)=> setWmSize(s)}
+            geom={{ xDisp: xLocal, yDisp: yLocal, scale: geom.scale }}
+            template={template}
+            onMouseDown={handleDown}
+          />
+        )}
+        {template.type === 'text' && (
+          <TextWatermarkPreview
+            geom={{ xDisp: xLocal, yDisp: yLocal }}
+            template={template}
+            onMouseDown={handleDown}
+          />
+        )}
+      </div>
 
       {showDebugAnchors && (
         <>
@@ -133,10 +151,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             )
           })}
           {(() => {
-            const curr = geom.calcPosition(template.layout.preset, template.layout.offsetX || 0, template.layout.offsetY || 0)
-            const xd = geom.ox + Math.round(curr.left * geom.scale)
-            const yd = geom.oy + Math.round(curr.top  * geom.scale)
-            return <div style={{ position: 'absolute', left: xd, top: yd, width: 10, height: 10, background: 'rgba(0,128,255,.9)', border: '1px solid #fff', borderRadius: 5, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} title="current" />
+            return <div style={{ position: 'absolute', left: xAbs, top: yAbs, width: 10, height: 10, background: 'rgba(0,128,255,.9)', border: '1px solid #fff', borderRadius: 5, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} title="current" />
           })()}
         </>
       )}
