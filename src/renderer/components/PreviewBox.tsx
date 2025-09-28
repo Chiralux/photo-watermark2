@@ -172,68 +172,70 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
       )}
       {template.type === 'image' && wmUrl && (
-        <img
-          src={wmUrl}
-          onLoad={(e:any)=> setWmSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-          onMouseDown={handleDown}
-          style={{
-            position: 'absolute',
-            left: geom.xDisp,
-            top: geom.yDisp,
-            transformOrigin: transformOriginByPreset(template.layout.preset),
-            width: (()=>{
-              const natW = wmSize?.w || 1
-              const natH = wmSize?.h || 1
-              const mode = template.image?.scaleMode || 'proportional'
-              if (mode === 'free') {
-                const sx = Math.max(0.01, Number(template.image?.scaleX) || 1)
-                return Math.max(1, Math.round(natW * sx * geom.scale))
-              } else {
-                const s = Math.max(0.01, Number(template.image?.scale) || 1)
-                const ww1 = Math.max(1, Math.round(natW * s))
-                const hh1 = Math.max(1, Math.round(natH * s))
-                const sEff = Math.min(ww1 / natW, hh1 / natH)
-                const wwEff = Math.max(1, Math.round(natW * sEff))
-                return Math.max(1, Math.round(wwEff * geom.scale))
-              }
-            })(),
-            height: (()=>{
-              const natW = wmSize?.w || 1
-              const natH = wmSize?.h || 1
-              const mode = template.image?.scaleMode || 'proportional'
-              if (mode === 'free') {
-                const sy = Math.max(0.01, Number(template.image?.scaleY) || 1)
-                return Math.max(1, Math.round(natH * sy * geom.scale))
-              } else {
-                const s = Math.max(0.01, Number(template.image?.scale) || 1)
-                const ww1 = Math.max(1, Math.round(natW * s))
-                const hh1 = Math.max(1, Math.round(natH * s))
-                const sEff = Math.min(ww1 / natW, hh1 / natH)
-                const hhEff = Math.max(1, Math.round(natH * sEff))
-                return Math.max(1, Math.round(hhEff * geom.scale))
-              }
-            })(),
-            transform:
-              (
-                (template.layout.preset === 'tl' ? 'translate(0, 0)' :
-                template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
-                template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
-                template.layout.preset === 'cl' ? 'translate(0, -50%)' :
-                template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
-                template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
-                template.layout.preset === 'bl' ? 'translate(0, -100%)' :
-                template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
-                'translate(-100%, -100%)') +
-                (typeof template.image?.rotation === 'number' && !isNaN(template.image.rotation)
-                  ? ` rotate(${template.image.rotation}deg)`
-                  : '')
-              ),
-            opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
-            cursor: 'move',
-            userSelect: 'none',
-            pointerEvents: 'auto'
-          }}
-        />
+        (() => {
+          // 计算锚点像素（与主进程一致）
+          const natW = wmSize?.w || 1
+          const natH = wmSize?.h || 1
+          const mode = template.image?.scaleMode || 'proportional'
+          let ww = natW, hh = natH
+          if (mode === 'free') {
+            const sx = Math.max(0.01, Number(template.image?.scaleX) || 1)
+            const sy = Math.max(0.01, Number(template.image?.scaleY) || 1)
+            ww = Math.max(1, Math.round(natW * sx))
+            hh = Math.max(1, Math.round(natH * sy))
+          } else {
+            const s = Math.max(0.01, Number(template.image?.scale) || 1)
+            ww = Math.max(1, Math.round(natW * s))
+            hh = Math.max(1, Math.round(natH * s))
+          }
+          // 预览缩放
+          const wDisp = Math.max(1, Math.round(ww * geom.scale))
+          const hDisp = Math.max(1, Math.round(hh * geom.scale))
+          // 九宫格锚点
+          const preset = template.layout.preset
+          const anchorMap = {
+            tl: [0, 0], tc: [0.5, 0], tr: [1, 0],
+            cl: [0, 0.5], center: [0.5, 0.5], cr: [1, 0.5],
+            bl: [0, 1], bc: [0.5, 1], br: [1, 1]
+          }
+          const anchorPresets = ['tl','tc','tr','cl','center','cr','bl','bc','br'] as const;
+          type AnchorPreset = typeof anchorPresets[number];
+          const [ax, ay] = anchorMap[(preset as AnchorPreset)] || [0.5, 0.5]
+          // 旋转中心像素（锚点）
+          const anchorX = ax * wDisp
+          const anchorY = ay * hDisp
+          // 旋转后，锚点应落在预览定位点
+          const left = geom.xDisp
+          const top = geom.yDisp
+          // transform-origin 用像素
+          const transformOrigin = `${anchorX}px ${anchorY}px`
+          // translate 使锚点对齐定位点
+          const translateX = left - anchorX
+          const translateY = top - anchorY
+          // 旋转
+          const rotation = typeof template.image?.rotation === 'number' && !isNaN(template.image.rotation)
+            ? template.image.rotation : 0
+          return (
+            <img
+              src={wmUrl}
+              onLoad={(e:any)=> setWmSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+              onMouseDown={handleDown}
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: wDisp,
+                height: hDisp,
+                transformOrigin,
+                transform: `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg)`,
+                opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
+                cursor: 'move',
+                userSelect: 'none',
+                pointerEvents: 'auto'
+              }}
+            />
+          )
+        })()
       )}
       {template.type === 'text' && (
         <div
