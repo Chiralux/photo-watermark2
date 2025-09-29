@@ -60,7 +60,10 @@ export function buildTextSVG(text, layout, W, H) {
     }
   }
   const { anchor, baseline, vAlign } = getSvgAnchors(layout?.preset)
-  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H, !(layout?.allowOverflow))
+  // 与预览端/usePreviewGeometry 及导出图片水印一致：
+  // 当 allowOverflow 未显式设为 false 时，默认不钳制（clampInside=false）
+  const clampInside = !(layout?.allowOverflow !== false)
+  const { left, top } = calcPosition({ preset: layout?.preset, offsetX: layout?.offsetX || 0, offsetY: layout?.offsetY || 0 }, W, H, clampInside)
   let x = left
   let y = top
   let dyPx = 0

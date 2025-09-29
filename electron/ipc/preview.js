@@ -57,7 +57,9 @@ export function registerPreviewIpc(ipcMain, isDev) {
         const rot = Number.isFinite(config.image.rotation) ? Number(config.image.rotation) : 0
         let rotBuf = wmBuf
         let rw = ww, rh = hh
-        if (rot % 360 !== 0) {
+        let rawLeft, rawTop
+        const pos = calcPosition(config.layout, targetW, targetH, !(config.layout?.allowOverflow !== false))
+        if ((rot % 360) !== 0) {
           const { ax, ay } = getImageAnchorFactors(config.layout?.preset)
           const anchorX = Math.round(ax * ww)
           const anchorY = Math.round(ay * hh)
@@ -73,12 +75,17 @@ export function registerPreviewIpc(ipcMain, isDev) {
           const rotated = sharp(centered).rotate(rot, { background: { r:0,g:0,b:0,alpha:0 } })
           rotBuf = await rotated.png().toBuffer()
           try { const md = await sharp(rotBuf).metadata(); if (md?.width) rw = md.width; if (md?.height) rh = md.height } catch {}
+          const cx = Math.floor(rw / 2)
+          const cy = Math.floor(rh / 2)
+          rawLeft = Math.round(pos.left - cx)
+          rawTop  = Math.round(pos.top  - cy)
+        } else {
+          const { ax, ay } = getImageAnchorFactors(config.layout?.preset)
+          const anchorX = Math.round(ax * ww)
+          const anchorY = Math.round(ay * hh)
+          rawLeft = Math.round(pos.left - anchorX)
+          rawTop  = Math.round(pos.top  - anchorY)
         }
-        const pos = calcPosition(config.layout, targetW, targetH, !(config.layout?.allowOverflow !== false))
-        const cx = Math.floor(rw / 2)
-        const cy = Math.floor(rh / 2)
-        const rawLeft = Math.round(pos.left - cx)
-        const rawTop  = Math.round(pos.top  - cy)
         const allowOverflow = (config.layout?.allowOverflow !== false)
         if (allowOverflow) {
           const destLeft = Math.max(0, rawLeft)
