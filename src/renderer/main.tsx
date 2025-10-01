@@ -340,20 +340,31 @@ function App() {
   useEffect(()=>{ try { localStorage.setItem('customHeight', String(customHeight)) } catch {} }, [customHeight])
   useEffect(()=>{ try { localStorage.setItem('resizePercent', String(resizePercent)) } catch {} }, [resizePercent])
 
-  // 读取当前选中文件的元数据（拍摄时间）
-  useEffect(() => {
-    (async () => {
-      try {
-        const path = files.length ? files[Math.max(0, Math.min(selected, files.length - 1))] : ''
-        if (!path || !(window as any).imageMeta?.get) { setCurrMeta(null); return }
-        const m = await (window as any).imageMeta.get(path)
-        setCurrMeta({ dateTaken: m?.dateTaken ?? null, dateSource: m?.dateSource ?? null })
-        const w = m?.orientedWidth || m?.width || 0
-        const h = m?.orientedHeight || m?.height || 0
-        setCurrSize(w && h ? { w, h } : null)
-      } catch { setCurrMeta(null) }
-    })()
-  }, [files, selected])
+  // 读取/刷新当前选中文件的元数据（拍摄时间）
+  const reloadCurrMeta = async () => {
+    try {
+      const path = files.length ? files[Math.max(0, Math.min(selected, files.length - 1))] : ''
+      if (!path || !(window as any).imageMeta?.get) { setCurrMeta(null); return }
+      const m = await (window as any).imageMeta.get(path)
+      setCurrMeta({ dateTaken: m?.dateTaken ?? null, dateSource: m?.dateSource ?? null })
+      const w = m?.orientedWidth || m?.width || 0
+      const h = m?.orientedHeight || m?.height || 0
+      setCurrSize(w && h ? { w, h } : null)
+    } catch { setCurrMeta(null) }
+  }
+  useEffect(() => { reloadCurrMeta() }, [files, selected])
+
+  // 映射拍摄时间来源标签
+  const getDateSrcLabel = (src?: string | null): string => {
+    switch (src) {
+      case 'exif': return 'EXIF'
+      case 'gps': return 'GPS'
+      case 'xmp': return 'XMP'
+      case 'filename': return '文件名'
+      case 'filetime': return '文件修改时间'
+      default: return ''
+    }
+  }
 
   // 工具函数：把新文件“追加”到现有列表（不覆盖），并去重（不区分大小写）；
   // 行为：若有新增，自动选中新增的第一张，便于快速预览。
@@ -532,8 +543,10 @@ function App() {
                     const next = { ...metaFallback, allowFilename: !!e.target.checked }
                     setMetaFallback(next)
                     try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+                    // 回退策略变更后，立即刷新当前图片的元数据，联动快捷填充按钮可用状态
+                    try { await reloadCurrMeta() } catch {}
                   }} />
-                  <span className="muted">允许从文件名推断时间（如 20250113_141523）</span>
+                  <span className="muted">允许从文件名推断时间</span>
                 </label>
               </div>
             </div>
@@ -545,8 +558,10 @@ function App() {
                     const next = { ...metaFallback, allowFileTime: !!e.target.checked }
                     setMetaFallback(next)
                     try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+                    // 回退策略变更后，立即刷新当前图片的元数据，联动快捷填充按钮可用状态
+                    try { await reloadCurrMeta() } catch {}
                   }} />
-                  <span className="muted">允许用文件修改时间作为兜底（可能不是拍摄时间）</span>
+                  <span className="muted">允许用文件修改时间作为兜底</span>
                 </label>
               </div>
             </div>
@@ -703,7 +718,7 @@ function App() {
                   <div className="form-row">
                     <div className="input-group" style={{ width: '100%', gridColumn: '1 / span 2' }}>
                       <textarea value={tpl.text?.content || ''} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, content: e.target.value } })} />
-                      <button className="btn icon" disabled={!currMeta?.dateTaken} title={currMeta?.dateTaken || '未检索到时间信息'} onClick={() => {
+                      <button className="btn icon" disabled={!currMeta?.dateTaken} title={currMeta?.dateTaken ? `${currMeta.dateTaken}${getDateSrcLabel(currMeta?.dateSource)? `（来源：${getDateSrcLabel(currMeta?.dateSource)}）` : ''}` : '未检索到时间信息'} onClick={() => {
                         const dt = currMeta?.dateTaken
                         if (!dt) return
                         setTpl(prev => ({ ...prev, text: { ...prev.text!, content: dt } }))
@@ -718,7 +733,11 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div className="help">拍摄时间可快捷填充（若已读取到元数据）。</div>
+                <div className="help">
+                  {currMeta?.dateTaken
+                    ? <>拍摄时间可快捷填充（来源：{getDateSrcLabel(currMeta?.dateSource) || '未知'}）。</>
+                    : '拍摄时间可快捷填充（若已读取到元数据）。'}
+                </div>
               </div>
               {/* 旋转设置（统一表单样式） */}
               <div className="panel" style={{ marginTop: 8 }}>
