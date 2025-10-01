@@ -241,6 +241,17 @@ function App() {
     })()
   }, [])
 
+  // 当自动加载模式为“上次退出时设置（last）”时，在关闭页面/应用前保存当前配置
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (autoLoad === 'last') {
+        try { window.api.templates.saveLast(buildSavedTemplate()) } catch {}
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [autoLoad, tpl, format, naming?.prefix, naming?.suffix, jpegQuality, resizeMode, customWidth, customHeight, resizePercent, enableCompressedPreview])
+
   // 检测当前选择字体是否可用（Chromium 字体加载 API）
   useEffect(() => {
     const fam = tpl.text?.fontFamily
