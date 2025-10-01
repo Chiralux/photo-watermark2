@@ -73,7 +73,8 @@ export function registerPreviewIpc(ipcMain, isDev) {
         const scalePreviewToImage = Math.min(PREVIEW_W / (targetW || PREVIEW_W), PREVIEW_H / (targetH || PREVIEW_H))
         const fontSizeImage = Math.max(8, fontSize / (scalePreviewToImage || 1))
         let dyAdjust = 0
-        if (vAlign === 'top') dyAdjust = Math.round(fontSizeImage * 0.8)
+  // 顶部对齐不再额外下移，确保 tl/tc/tr 紧贴上边距
+  if (vAlign === 'top') dyAdjust = 0
         else if (vAlign === 'middle') dyAdjust = fontSizeImage * 0.40
         else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSizeImage * 0.2)
         if (Number.isFinite(config.text?.baselineAdjust)) dyAdjust += Number(config.text?.baselineAdjust) / (scalePreviewToImage || 1)

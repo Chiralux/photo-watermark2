@@ -67,7 +67,8 @@ export function buildTextSVG(text, layout, W, H) {
   let x = left
   let y = top
   let dyPx = 0
-  if (vAlign === 'top') dyPx = Math.round(fontSize * 0.8)
+  // 顶部对齐不再额外下移，保证 tl/tc/tr 紧贴上边距
+  if (vAlign === 'top') dyPx = 0
   else if (vAlign === 'middle') dyPx = fontSize * 0.40
   else if (vAlign === 'bottom') dyPx = -Math.round(fontSize * 0.2)
   const baselineAdjustPreviewPx = Number(text?.baselineAdjust || 0)
@@ -137,7 +138,8 @@ export function buildTextSpriteSVG(text, W, H) {
     } catch { return { r:0,g:0,b:0 } }
   }
   const outlineEnabled = !!text?.outline?.enabled
-  const outlineWidthPreviewPx = Math.max(0, Math.round(Number(text?.outline?.width) || 0))
+  const rawOutlineW = Number(text?.outline?.width)
+  const outlineWidthPreviewPx = (outlineEnabled ? Math.max(1, Math.round(isFinite(rawOutlineW) ? rawOutlineW : 1)) : 0)
   const outlineWidthPx = Math.max(0, Math.round(outlineWidthPreviewPx / (scalePreviewToImage || 1)))
   const outlineOpacity = Math.max(0, Math.min(1, Number(text?.outline?.opacity) ?? 1))
   const outlineColorRGB = hexToRgb(text?.outline?.color || '#000000')
@@ -145,7 +147,8 @@ export function buildTextSpriteSVG(text, W, H) {
   const shadowEnabled = !!text?.shadow?.enabled
   const shadowOffsetXPreview = Math.round(Number(text?.shadow?.offsetX) || 0)
   const shadowOffsetYPreview = Math.round(Number(text?.shadow?.offsetY) || 0)
-  const shadowBlurPreview = Math.max(0, Math.round(Number(text?.shadow?.blur) || 0))
+  const rawShadowBlur = Number(text?.shadow?.blur)
+  const shadowBlurPreview = (shadowEnabled ? Math.max(1, Math.round(isFinite(rawShadowBlur) ? rawShadowBlur : 1)) : 0)
   const shadowOffsetX = shadowEnabled ? (shadowOffsetXPreview / (scalePreviewToImage || 1)) : 0
   const shadowOffsetY = shadowEnabled ? (shadowOffsetYPreview / (scalePreviewToImage || 1)) : 0
   const shadowBlur = shadowEnabled ? Math.max(0, shadowBlurPreview / (scalePreviewToImage || 1)) : 0

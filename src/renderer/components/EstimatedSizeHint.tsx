@@ -1,6 +1,6 @@
 import React from 'react'
 
-export function EstimatedSizeHint({ size, mode, widthVal, heightVal, percentVal }: {
+function EstimatedSizeHintInner({ size, mode, widthVal, heightVal, percentVal }: {
   size: { w: number; h: number } | null
   mode: 'original'|'percent'|'custom'
   widthVal: number
@@ -33,3 +33,17 @@ export function EstimatedSizeHint({ size, mode, widthVal, heightVal, percentVal 
     </div>
   )
 }
+type EstimatedProps = {
+  size: { w: number; h: number } | null
+  mode: 'original'|'percent'|'custom'
+  widthVal: number
+  heightVal: number
+  percentVal: number
+}
+export const EstimatedSizeHint = React.memo(EstimatedSizeHintInner, (a: EstimatedProps, b: EstimatedProps) => (
+  a.size?.w === b.size?.w && a.size?.h === b.size?.h &&
+  a.mode === b.mode &&
+  a.widthVal === b.widthVal &&
+  a.heightVal === b.heightVal &&
+  a.percentVal === b.percentVal
+))

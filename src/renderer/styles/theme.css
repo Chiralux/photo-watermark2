@@ -1,0 +1,368 @@
+:root {
+	--bg: #f7f7f7;
+	--panel-bg: #ffffff;
+	--border: #e8e8e8;
+	--text: #222;
+	--text-sub: #666;
+	--text-weak: #999;
+	--brand: #4f46e5;
+	--brand-weak: #eef2ff;
+	--shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+	--radius: 10px;
+	--radius-sm: 8px;
+	--gap-2: 8px;
+	--gap-3: 12px;
+	--gap-4: 16px;
+}
+
+html, body, #root {
+	height: 100%;
+}
+
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: system-ui, "Segoe UI", "Microsoft YaHei", Arial, PingFang SC, sans-serif;
+	font-size: 13px;
+}
+
+/* Panel */
+.panel {
+	background: var(--panel-bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow-sm);
+	padding: var(--gap-3);
+	margin-bottom: var(--gap-3);
+}
+.panel-title {
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: var(--gap-2);
+}
+.panel-sub {
+	color: var(--text-weak);
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+/* Form */
+.form {
+	display: grid;
+	grid-template-columns: 108px 1fr;
+	gap: var(--gap-2) var(--gap-3);
+	align-items: center;
+}
+.form.compact-label { grid-template-columns: 64px 1fr; }
+.form.tight-gap { column-gap: var(--gap-2); }
+/* 让左侧标签按内容自适应宽度，并进一步缩小左右列间距 */
+.form.auto-label { grid-template-columns: auto 1fr; }
+.form.tiny-gap { column-gap: 4px; }
+.form.micro-gap { column-gap: 2px; }
+/* 自定义 20px 列间距 */
+.form.gap-20 { column-gap: 20px; }
+.form-row { display: contents; }
+.form label {
+	text-align: right;
+	color: var(--text-sub);
+    white-space: nowrap; /* 避免中文标签换行导致垂直对不齐 */
+}
+/* 让某个表单下的所有 label 左对齐 */
+.form.labels-left label { text-align: left; }
+/* 让控件内容明确左对齐（默认即为左对齐，此类用于确保一致性） */
+.form.controls-left .control { justify-content: flex-start; }
+
+/* 统一字段宽度：使同一表单中的输入框/选择框等在同一垂直线开始，且宽度一致 */
+.form.uniform-fields { --field-width: 150px; }
+.form.uniform-fields .control > input[type="text"],
+.form.uniform-fields .control > input[type="number"],
+.form.uniform-fields .control > select,
+.form.uniform-fields .control > input[type="color"] {
+	width: var(--field-width);
+	flex: 0 0 var(--field-width);
+}
+/* 例外：小尺寸字段（用于仿斜角度等） */
+.form.uniform-fields .control > input.input-sm { width: 72px; flex: 0 0 72px; }
+/* 更小尺寸（48px） */
+.form.uniform-fields .control > input.input-xs {
+	width: 48px;
+	flex: 0 0 48px;
+	padding: 0 4px; /* 减少两侧留白，容纳 3~4 位数字 */
+	text-align: right; /* 数字右对齐更利于比较数值位数 */
+}
+.form.uniform-fields .control > input.input-xs::-webkit-outer-spin-button,
+.form.uniform-fields .control > input.input-xs::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+/* 超小尺寸：24px 宽（用于极窄数字输入） */
+.form.uniform-fields .control > input.input-xxs {
+	width: 24px;
+	flex: 0 0 24px;
+	padding: 0 2px; /* 覆盖通用 0 10px，确保可见区域 */
+	text-align: right;
+}
+.form.uniform-fields .control > input.input-xxs::-webkit-outer-spin-button,
+.form.uniform-fields .control > input.input-xxs::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+/* 关键：在 Grid 中的 Flex 子项需要 min-width: 0 才能在列内收缩，避免溢出 */
+.form .control { min-width: 0; }
+/* 可选：让单个表单项的标签左对齐 */
+.form label.left { text-align: left; }
+.control {
+	display: flex;
+	align-items: center;
+	gap: var(--gap-2);
+}
+.control.wrap { flex-wrap: wrap; }
+.control .btn { white-space: nowrap; flex-shrink: 0; }
+/* 工具类：将元素推到行尾 */
+.ml-auto { margin-left: auto; }
+.control .unit { color: var(--text-weak); font-size: 12px; }
+
+/* 让滑动条贴齐父容器左侧并占满可用空间 */
+.control input[type="range"] {
+  flex: 1 1 auto;
+  margin: 0; /* 去除浏览器默认左右空白 */
+}
+/* 数字输入不应伸展，保持内容宽度或固定宽度 */
+.control input[type="number"] { flex: 0 0 auto; }
+
+/* 输入组：大文本框 + 右侧按钮等高排列 */
+.input-group {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--gap-2);
+	align-items: center;
+}
+.input-group > textarea {
+	width: 100%;
+	height: 72px;
+}
+/* 右侧按钮使用默认高度，避免过高 */
+.input-group > .btn { height: 30px; }
+
+/* 可选：更小尺寸按钮 */
+.btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
+
+/* Inputs */
+input[type="text"], input[type="number"], select {
+	height: 30px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: #fff;
+}
+textarea {
+	min-height: 72px;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: #fff;
+	resize: vertical;
+}
+input[type="number"] { width: 84px; }
+input[disabled] { background: #f5f5f5; color: var(--text-weak); }
+
+/* Buttons */
+.btn {
+	height: 30px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: #fff;
+	cursor: pointer;
+}
+.btn.primary {
+	background: var(--brand);
+	color: #fff;
+	border-color: var(--brand);
+}
+.btn.danger {
+	background: #ef4444;
+	color: #fff;
+	border-color: #ef4444;
+}
+.btn:hover { filter: brightness(0.98); }
+.btn.primary:hover, .btn.danger:hover { filter: brightness(0.95); }
+
+/* 低饱和度描边按钮：更克制的视觉风格 */
+.btn.outline {
+	background: #fff;
+	color: var(--text);
+	border-color: var(--border);
+}
+.btn.outline:hover { background: #f9fafb; }
+
+.btn.outline-primary {
+	background: #fff;
+	color: var(--brand);
+	border-color: var(--brand);
+}
+.btn.outline-primary:hover { background: var(--brand-weak); }
+
+.btn.outline-danger {
+	background: #fff;
+	color: #ef4444;
+	border-color: #ef4444;
+}
+.btn.outline-danger:hover { background: #fee2e2; }
+.btn.ghost { background: #fff; }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* 方形图标按钮 */
+.btn.icon {
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+.btn.icon svg {
+	width: 16px;
+	height: 16px;
+}
+
+.help {
+	font-size: 12px;
+	color: var(--text-weak);
+}
+
+/* Segmented */
+.segmented {
+	display: inline-flex;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	overflow: hidden;
+}
+.segmented button {
+	padding: 6px 12px;
+	border: none;
+	background: #fff;
+	cursor: pointer;
+}
+.segmented button.active { background: var(--brand-weak); color: var(--brand); }
+
+/* Switch (简易) */
+.switch {
+	position: relative;
+	width: 40px; height: 22px;
+	background: #ddd;
+	border-radius: 22px;
+	cursor: pointer;
+}
+.switch::after {
+	content: '';
+	position: absolute;
+	top: 2px; left: 2px;
+	width: 18px; height: 18px;
+	background: #fff;
+	border-radius: 50%;
+	transition: left .18s ease;
+}
+.switch.on { background: var(--brand); }
+.switch.on::after { left: 20px; }
+
+/* Grid 3x3 for anchors */
+.grid-3x3 {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px;
+}
+.grid-3x3 .cell {
+	height: 28px;
+	background: #fff;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	cursor: pointer;
+	position: relative;
+	overflow: hidden;
+}
+.grid-3x3 .cell.active { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-weak) inset; }
+.grid-3x3 .cell:hover { border-color: var(--brand); }
+
+/* 内部示意：小画布 + 对齐点 */
+.grid-3x3 .cell::before {
+	content: '';
+	position: absolute;
+	inset: 5px;
+	border: 1px dashed #d9d9d9;
+	border-radius: 4px;
+}
+.grid-3x3 .cell::after {
+	content: '';
+	position: absolute;
+	width: 6px; height: 6px;
+	background: #9aa3b2;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px #fff;
+}
+
+/* 9 个位置：tl tc tr / cl center cr / bl bc br */
+.grid-3x3 .cell:nth-child(1)::after { left: 8px;  top: 8px; }
+.grid-3x3 .cell:nth-child(2)::after { left: 50%; top: 8px;  transform: translateX(-50%); }
+.grid-3x3 .cell:nth-child(3)::after { right: 8px; top: 8px; }
+.grid-3x3 .cell:nth-child(4)::after { left: 8px;  top: 50%; transform: translateY(-50%); }
+.grid-3x3 .cell:nth-child(5)::after { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.grid-3x3 .cell:nth-child(6)::after { right: 8px; top: 50%; transform: translateY(-50%); }
+.grid-3x3 .cell:nth-child(7)::after { left: 8px;  bottom: 8px; }
+.grid-3x3 .cell:nth-child(8)::after { left: 50%; bottom: 8px; transform: translateX(-50%); }
+.grid-3x3 .cell:nth-child(9)::after { right: 8px; bottom: 8px; }
+
+.grid-3x3 .cell.active::after {
+	background: var(--brand);
+}
+
+/* Helper */
+.row-inline { display: flex; align-items: center; gap: var(--gap-2); }
+.muted { color: var(--text-weak); }
+
+/* Sidebar */
+.sidebar {
+	width: 320px;
+	border-left: 1px solid var(--border);
+	padding: 12px;
+	overflow: auto;
+	background: var(--bg);
+}
+
+/* 左侧栏，风格与右侧一致，仅边框位于右侧 */
+.sidebar-left {
+	width: 320px;
+	border-right: 1px solid var(--border);
+	padding: 12px;
+	overflow: auto;
+	background: var(--bg);
+}
+
+/* 可搜索字体下拉 */
+.font-select { position: relative; }
+.font-select .trigger {
+  height: 30px; padding: 0 10px; width: var(--field-width, 220px);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.font-select .trigger-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-select .menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: max(240px, var(--field-width, 220px));
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+}
+.font-select .search { width: 100%; box-sizing: border-box; border: none; border-bottom: 1px solid var(--border); padding: 8px 10px; outline: none; }
+.font-select .group { padding: 6px 10px; color: var(--text-weak); font-size: 12px; }
+.font-select .item { padding: 6px 10px; cursor: pointer; }
+.font-select .item:hover { background: var(--brand-weak); }
+.font-select .item.selected { color: var(--brand); }
+.font-select .empty { padding: 8px 10px; color: var(--text-weak); font-size: 12px; }
+
+/* 文本水印区域：数字输入统一右对齐 */
+.text-watermark input[type="number"] {
+	text-align: right;
+}
+
+/* 尺寸调整面板：数字输入右对齐 */
+.resize-form input[type="number"] {
+	text-align: right;
+}

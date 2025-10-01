@@ -8,7 +8,7 @@ import React from 'react'
 import type { Template } from '../types/template'
 import { anchorMap, anchorPresets } from '../utils/anchor'
 
-export function ImageWatermarkPreview({
+function ImageWatermarkPreviewInner({
   wmUrl,
   wmSize,
   setWmSize,
@@ -76,3 +76,23 @@ export function ImageWatermarkPreview({
     />
   )
 }
+
+function areEqual(prev: any, next: any) {
+  // 忽略函数引用变化，仅关注与渲染相关的标量/字符串
+  if (prev.wmUrl !== next.wmUrl) return false
+  if (prev.geom.xDisp !== next.geom.xDisp || prev.geom.yDisp !== next.geom.yDisp || prev.geom.scale !== next.geom.scale) return false
+  if ((prev.wmSize?.w||0) !== (next.wmSize?.w||0) || (prev.wmSize?.h||0) !== (next.wmSize?.h||0)) return false
+  const pi = prev.template?.image || {}
+  const ni = next.template?.image || {}
+  if (pi.path !== ni.path) return false
+  if ((pi.scale||1) !== (ni.scale||1)) return false
+  if ((pi.scaleX||1) !== (ni.scaleX||1)) return false
+  if ((pi.scaleY||1) !== (ni.scaleY||1)) return false
+  if ((pi.scaleMode||'proportional') !== (ni.scaleMode||'proportional')) return false
+  if ((pi.opacity??0.6) !== (ni.opacity??0.6)) return false
+  if ((pi.rotation||0) !== (ni.rotation||0)) return false
+  if (prev.template?.layout?.preset !== next.template?.layout?.preset) return false
+  return true
+}
+
+export const ImageWatermarkPreview = React.memo(ImageWatermarkPreviewInner, areEqual)

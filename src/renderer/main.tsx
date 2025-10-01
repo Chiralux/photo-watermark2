@@ -5,6 +5,8 @@ import { wrapFontFamily } from './utils/font'
 import { CompressedPreview } from './components/CompressedPreview'
 import { EstimatedSizeHint } from './components/EstimatedSizeHint'
 import { PreviewBox } from './components/PreviewBox'
+import { FontSelect } from './components/FontSelect'
+import './styles/theme.css'
 
 declare global {
   interface Window {
@@ -140,6 +142,9 @@ function App() {
     },
     layout: { preset: 'center', offsetX: 0, offsetY: 0, allowOverflow: true },
   })
+
+  // 顶部模块切换：水印 / 布局 / 导出
+  const [activeTab, setActiveTab] = useState<'watermark'|'layout'|'export'>('watermark')
 
   // 工具：根据当前 UI 状态构造可保存的模板文件对象
   const buildSavedTemplate = (): SavedTemplateFile => ({
@@ -409,13 +414,17 @@ function App() {
 
   return (
     <div onDrop={handleDrop} onDragOver={handleDragOver} style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, Arial' }}>
-      <aside style={{ width: 280, borderRight: '1px solid #eee', padding: 12, overflow: 'auto' }}>
-        <h3>文件</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onImport}>导入图片</button>
-          <button onClick={async ()=>{ if(!(window as any).api){alert('预加载未生效');return} const list = await window.api.openDirectory(); if(list?.length) appendFiles(list)}}>导入文件夹</button>
+      <aside className="sidebar-left">
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-title">文件</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={onImport}>导入图片</button>
+            <button className="btn" onClick={async ()=>{ if(!(window as any).api){alert('预加载未生效');return} const list = await window.api.openDirectory(); if(list?.length) appendFiles(list)}}>导入文件夹</button>
+          </div>
         </div>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-title">文件列表</div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {files.map((f: string, i: number) => {
             const fileUrl = f.startsWith('file:') ? f : ('file:///' + encodeURI(f.replace(/\\/g, '/')))
             const name = f.split(/\\/).pop()
@@ -456,75 +465,120 @@ function App() {
             )
           })}
         </ul>
-
-        <h3 style={{ marginTop: 12 }}>模板</h3>
-        <div style={{ marginBottom: 8, padding: 8, border: '1px solid #eee', borderRadius: 6, background: '#fafafa' }}>
-          <div style={{ marginBottom: 6, fontWeight: 600 }}>自动加载</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <label><input type="radio" name="autoload" checked={autoLoad==='last'} onChange={()=>setAutoLoad('last')} /> 上次退出时设置</label>
-            <label><input type="radio" name="autoload" checked={autoLoad==='default'} onChange={()=>setAutoLoad('default')} /> 默认模板</label>
-          </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
-            {autoLoad === 'default' && (
-              <select value={defaultTplName} onChange={(e:any)=>setDefaultTplName(e.target.value)} style={{ flex: 1 }}>
-                <option value="">（未选择）</option>
-                {tplList.map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
+        </div>
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-title">自动加载</div>
+          <div className="form labels-left auto-label tiny-gap" style={{ marginBottom: 8 }}>
+            <div className="form-row">
+              <label className="left">模式</label>
+              <div className="control">
+                <label className="row-inline"><input type="radio" name="autoload" checked={autoLoad==='last'} onChange={()=>setAutoLoad('last')} /> 上次退出时设置</label>
+                <label className="row-inline"><input type="radio" name="autoload" checked={autoLoad==='default'} onChange={()=>setAutoLoad('default')} /> 默认模板</label>
+              </div>
+            </div>
+            {autoLoad === 'default' ? (
+              <div className="form-row">
+                <label className="left">默认模板</label>
+                <div className="control">
+                  <select value={defaultTplName} onChange={(e:any)=>setDefaultTplName(e.target.value)}>
+                    <option value="">（未选择）</option>
+                    {tplList.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <button className="btn" onClick={async ()=>{
+                    const ok = await window.api.templates.setAutoLoadConfig({ autoLoad, defaultName: defaultTplName || null })
+                    if (!ok) { alert('保存失败'); return }
+                    alert('自动加载设置已保存')
+                  }}>保存</button>
+                </div>
+              </div>
+            ) : (
+              <div className="form-row">
+                <label />
+                <div className="control">
+                  <button className="btn" onClick={async ()=>{
+                    const ok = await window.api.templates.setAutoLoadConfig({ autoLoad, defaultName: null })
+                    if (!ok) { alert('保存失败'); return }
+                    alert('自动加载设置已保存')
+                  }}>保存</button>
+                </div>
+              </div>
             )}
-            <button onClick={async ()=>{
-              const ok = await window.api.templates.setAutoLoadConfig({ autoLoad, defaultName: autoLoad==='default' ? (defaultTplName || null) : null })
-              if (!ok) { alert('保存失败'); return }
-              alert('自动加载设置已保存')
-            }}>保存</button>
           </div>
         </div>
-        <div style={{ marginBottom: 8, padding: 8, border: '1px solid #eee', borderRadius: 6, background: '#fafafa' }}>
-          <div style={{ marginBottom: 6, fontWeight: 600 }}>拍摄时间回退</div>
-          <label style={{ display: 'block', marginBottom: 6 }}>
-            <input type="checkbox" checked={metaFallback.allowFilename} onChange={async (e:any)=>{
-              const next = { ...metaFallback, allowFilename: !!e.target.checked }
-              setMetaFallback(next)
-              try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
-            }} />
-            允许从文件名推断时间（如 20250113_141523）
-          </label>
-          <label style={{ display: 'block' }}>
-            <input type="checkbox" checked={metaFallback.allowFileTime} onChange={async (e:any)=>{
-              const next = { ...metaFallback, allowFileTime: !!e.target.checked }
-              setMetaFallback(next)
-              try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
-            }} />
-            允许用文件修改时间作为兜底（可能不是拍摄时间）
-          </label>
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-title">拍摄时间回退</div>
+          <div className="form labels-left auto-label tiny-gap">
+            <div className="form-row">
+              <label className="left">文件名兜底</label>
+              <div className="control">
+                <label className="row-inline">
+                  <input type="checkbox" checked={metaFallback.allowFilename} onChange={async (e:any)=>{
+                    const next = { ...metaFallback, allowFilename: !!e.target.checked }
+                    setMetaFallback(next)
+                    try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+                  }} />
+                  <span className="muted">允许从文件名推断时间（如 20250113_141523）</span>
+                </label>
+              </div>
+            </div>
+            <div className="form-row">
+              <label className="left">修改时间兜底</label>
+              <div className="control">
+                <label className="row-inline">
+                  <input type="checkbox" checked={metaFallback.allowFileTime} onChange={async (e:any)=>{
+                    const next = { ...metaFallback, allowFileTime: !!e.target.checked }
+                    setMetaFallback(next)
+                    try { await (window as any).api?.meta?.setFallbackConfig?.(next) } catch {}
+                  }} />
+                  <span className="muted">允许用文件修改时间作为兜底（可能不是拍摄时间）</span>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-          <input placeholder="输入模板名" value={tplName} onChange={(e:any)=>setTplName(e.target.value)} style={{ flex: 1 }} />
-          <button onClick={async ()=>{
-            const name = tplName.trim()
-            if (!name) { alert('请输入模板名'); return }
-            await window.api.templates.save(name, buildSavedTemplate())
-            setTplName('')
-            const names = await window.api.templates.list().catch(()=>[])
-            setTplList(Array.isArray(names)? names : [])
-            // 也把当前配置设为最近一次
-            await window.api.templates.saveLast(buildSavedTemplate())
-            alert('模板已保存')
-          }}>保存</button>
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-title">保存模板</div>
+          <div className="form labels-left auto-label tiny-gap">
+            <div className="form-row">
+              <label className="left">模板名</label>
+              <div className="control">
+                <input placeholder="输入模板名" value={tplName} onChange={(e:any)=>setTplName(e.target.value)} />
+                <button className="btn" onClick={async ()=>{
+                  const name = tplName.trim()
+                  if (!name) { alert('请输入模板名'); return }
+                  await window.api.templates.save(name, buildSavedTemplate())
+                  setTplName('')
+                  const names = await window.api.templates.list().catch(()=>[])
+                  setTplList(Array.isArray(names)? names : [])
+                  // 也把当前配置设为最近一次
+                  await window.api.templates.saveLast(buildSavedTemplate())
+                  alert('模板已保存')
+                }}>保存</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #eee', borderRadius: 4 }}>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <div className="panel">
+          <div className="panel-title">模板列表</div>
+          <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #eee', borderRadius: 4 }}>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {tplList.length? tplList.map(n => (
-              <li key={n} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #f2f2f2' }}>
-                <span>{n}</span>
-                <span style={{ display: 'inline-flex', gap: 6 }}>
-                  <button onClick={async ()=>{
+                 <li key={n} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #f2f2f2' }}>
+                   <span>{n}</span>
+                   <span style={{ display: 'inline-flex', gap: 6 }}>
+                     <button className="btn sm outline-primary" title="加载此模板" onClick={async ()=>{
                     try {
                       const t = await window.api.templates.load(n)
                       applyLoadedTemplate(t)
                       await window.api.templates.saveLast(t)
                     } catch { alert('加载模板失败') }
-                  }}>加载</button>
-                  <button onClick={async ()=>{
+                     }}>
+                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                         <path d="M12 5v14M5 12h14" />
+                       </svg>
+                       <span style={{ marginLeft: 6 }}>加载</span>
+                     </button>
+                     <button className="btn sm outline-danger" title={`删除模板 “${n}”`} onClick={async ()=>{
                     const ok = confirm(`删除模板 “${n}”？`)
                     if (!ok) return
                     const ok2 = await window.api.templates.delete(n)
@@ -533,13 +587,22 @@ function App() {
                     setTplList(Array.isArray(names)? names : [])
                     // 若删除的是当前默认模板，清空选择
                     if (n === defaultTplName) setDefaultTplName('')
-                  }}>删除</button>
+                     }}>
+                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                         <polyline points="3 6 5 6 21 6" />
+                         <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                         <path d="M10 11v6M14 11v6" />
+                         <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+                       </svg>
+                       <span style={{ marginLeft: 6 }}>删除</span>
+                     </button>
                 </span>
               </li>
             )) : (
               <li style={{ padding: 8, color: '#888' }}>暂无模板</li>
             )}
-          </ul>
+            </ul>
+          </div>
         </div>
       </aside>
 
@@ -563,422 +626,448 @@ function App() {
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
           )}
         </section>
-        <section style={{ width: 320, borderLeft: '1px solid #eee', padding: 12, overflow: 'auto' }}>
-          <h3>水印</h3>
-          <div>
-            <label>
-              <input type="radio" name="wmtype" checked={tpl.type==='text'} onChange={() => setTpl({ ...tpl, type: 'text' })} /> 文本
-            </label>
-            <label style={{ marginLeft: 16 }}>
-              <input type="radio" name="wmtype" checked={tpl.type==='image'} onChange={() => setTpl({ ...tpl, type: 'image', image: { path: '', opacity: 0.6, scale: 1 } })} /> 图片（高级）
-            </label>
+        <section className="sidebar">
+          {/* 顶部模块分栏 */}
+          <div className="segmented" style={{ marginBottom: 10, width: '100%' }}>
+            <button className={activeTab==='watermark' ? 'active' : ''} onClick={()=> setActiveTab('watermark')}>水印</button>
+            <button className={activeTab==='layout' ? 'active' : ''} onClick={()=> setActiveTab('layout')}>布局</button>
+            <button className={activeTab==='export' ? 'active' : ''} onClick={()=> setActiveTab('export')}>导出</button>
           </div>
 
+          {activeTab === 'watermark' && (
+            <div className="panel">
+              <div className="panel-title">水印</div>
+              <div className="segmented" style={{ marginBottom: 8 }}>
+              <button
+                className={tpl.type==='text' ? 'active' : ''}
+                onClick={() => setTpl({ ...tpl, type: 'text' })}
+              >文本</button>
+              <button
+                className={tpl.type==='image' ? 'active' : ''}
+                onClick={() => setTpl({ ...tpl, type: 'image', image: { path: '', opacity: 0.6, scale: 1 } })}
+              >图片</button>
+              </div>
+
           {tpl.type === 'text' && (
-            <div style={{ marginTop: 8 }}>
-              <div>内容</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                <textarea value={tpl.text?.content || ''} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, content: e.target.value } })} rows={3} style={{ width: '100%' }} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <button disabled={!currMeta?.dateTaken} title={currMeta?.dateTaken || '未检索到时间信息'} onClick={() => {
-                    const dt = currMeta?.dateTaken
-                    if (!dt) return
-                    setTpl(prev => ({ ...prev, text: { ...prev.text!, content: dt } }))
-                  }}>使用拍摄时间</button>
+            <div className="text-watermark" style={{ marginTop: 8 }}>
+              {/* 文本内容 */}
+              <div className="panel">
+                <div className="panel-title">内容</div>
+                <div className="form labels-left">
+                  <div className="form-row">
+                    <div className="input-group" style={{ width: '100%', gridColumn: '1 / span 2' }}>
+                      <textarea value={tpl.text?.content || ''} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, content: e.target.value } })} />
+                      <button className="btn icon" disabled={!currMeta?.dateTaken} title={currMeta?.dateTaken || '未检索到时间信息'} onClick={() => {
+                        const dt = currMeta?.dateTaken
+                        if (!dt) return
+                        setTpl(prev => ({ ...prev, text: { ...prev.text!, content: dt } }))
+                      }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                          <line x1="16" y1="2" x2="16" y2="6"></line>
+                          <line x1="8" y1="2" x2="8" y2="6"></line>
+                          <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
+                <div className="help">拍摄时间可快捷填充（若已读取到元数据）。</div>
               </div>
-              {/* 旋转设置 */}
-              <div style={{ marginTop: 8 }}>
-                <label style={{ fontWeight: 600 }}>旋转角度（度）</label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                  <input
-                    type="range"
-                    min={-180}
-                    max={180}
-                    step={1}
-                    value={tpl.text?.rotation ?? 0}
-                    onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
-                    style={{ flex: 1 }}
-                  />
-                  <input
-                    type="number"
-                    min={-180}
-                    max={180}
-                    step={1}
-                    value={tpl.text?.rotation ?? 0}
-                    onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
-                    style={{ width: 72 }}
-                  />
-                  <button onClick={()=> setTpl({ ...tpl, text: { ...tpl.text!, rotation: 0 } })}>重置</button>
+              {/* 旋转设置（统一表单样式） */}
+              <div className="panel" style={{ marginTop: 8 }}>
+                <div className="panel-title">旋转</div>
+                <div className="form auto-label tiny-gap">
+                  <div className="form-row">
+                    <label className="left">角度</label>
+                    <div className="control" style={{ width: '100%', minWidth: 0 }}>
+                      <input
+                        type="range"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={tpl.text?.rotation ?? 0}
+                        onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
+                        style={{ flex: 1 }}
+                      />
+                      <input
+                        type="number"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={tpl.text?.rotation ?? 0}
+                        onChange={e => setTpl({ ...tpl, text: { ...tpl.text!, rotation: Number(e.target.value) } })}
+                        style={{ width: 56 }}
+                      />
+                      <span className="unit">°</span>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ color:'#888', fontSize:12, marginTop:2 }}>支持任意角度旋转，正值顺时针，负值逆时针。</div>
+                <div className="panel-sub">支持任意角度旋转：正值顺时针，负值逆时针。</div>
               </div>
-              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>拍摄时间：{currMeta?.dateTaken || '未读取'}{currMeta?.dateTaken ? (currMeta?.dateSource ? `（来源：${currMeta.dateSource}）` : '') : ''}</div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                <label>字体
-                  <select value={tpl.text?.fontFamily || ''} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: e.target.value } })} style={{ maxWidth: 220, marginLeft: 6 }}>
-                    <option value="">系统默认</option>
-                    {fontListCommonFiltered.length>0 && (
-                      <optgroup label="常用">
-                        {fontListCommonFiltered.map(f => <option key={f} value={f}>{f}</option>)}
-                      </optgroup>
-                    )}
-                    {fontListOthersFiltered.length>0 && (
-                      <optgroup label="其它">
-                        {fontListOthersFiltered.map(f => <option key={f} value={f}>{f}</option>)}
-                      </optgroup>
-                    )}
-                    {(fontListCommonFiltered.length===0 && fontListOthersFiltered.length===0) && (
-                      <option value="" disabled>未匹配到字体</option>
-                    )}
-                  </select>
-                </label>
-                <input
-                  type="text"
-                  placeholder="搜索字体..."
-                  value={fontQuery}
-                  onChange={(e:any)=> setFontQuery(e.target.value)}
-                  style={{ flex: 1, minWidth: 100 }}
-                />
-                {!!tpl.text?.fontFamily && (
-                  <span style={{ color: fontAvailable? '#2a7' : '#d77', fontSize: 12 }}>
-                    {fontAvailable ? '已加载' : '未检测到该字体（可能回退默认）'}
-                  </span>
-                )}
-              </div>
-              {fontFilter && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ color:'#666', fontSize: 12, marginBottom: 4 }}>匹配 {filteredFontsMerged.length} 项</div>
-                  <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid #eee', borderRadius: 4, background: '#fff' }}>
-                    {filteredFontsMerged.slice(0, 50).map(f => (
-                      <div
-                        key={f}
-                        onMouseDown={(e)=> e.preventDefault()}
-                        onClick={() => setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: f } })}
-                        style={{ padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f4f4f4' }}
-                        title={`点击应用：${f}`}
-                      >
-                        <span style={{ fontFamily: wrapFontFamily(f), fontSize: 14 }}>{f}</span>
-                        <span style={{ fontFamily: wrapFontFamily(f), color: '#555', marginLeft: 12 }}>
-                          {(tpl.text?.content || 'Aa汉字123').slice(0, 12)}
+              <div className="panel" style={{ marginTop: 8 }}>
+                <div className="panel-title">字体与样式</div>
+                <div className="form labels-left auto-label tiny-gap uniform-fields">
+                  <div className="form-row">
+                    <label>字体</label>
+                    <div className="control" style={{ width: '100%' }}>
+                      <FontSelect
+                        value={tpl.text?.fontFamily || ''}
+                        onChange={(v)=> setTpl({ ...tpl, text: { ...tpl.text!, fontFamily: v } })}
+                        common={fontListCommon}
+                        others={fontListOthers}
+                      />
+                      {!!tpl.text?.fontFamily && (
+                        <span className="help" style={{ color: fontAvailable? '#2a7' : '#d77' }}>
+                          {fontAvailable ? '已加载' : '未检测到该字体（可能回退默认）'}
                         </span>
-                      </div>
-                    ))}
-                    {filteredFontsMerged.length > 50 && (
-                      <div style={{ color:'#999', fontSize: 12, padding: '6px 8px' }}>已显示前 50 项，继续输入以缩小范围</div>
-                    )}
-                    {filteredFontsMerged.length === 0 && (
-                      <div style={{ color:'#999', fontSize: 12, padding: '6px 8px' }}>未匹配到字体</div>
-                    )}
+                      )}
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>字号</label>
+                    <div className="control">
+                      <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} />
+                      <span className="unit">px</span>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>粗细</label>
+                    <div className="control">
+                      <label className="row-inline"><input type="checkbox" checked={(tpl.text?.fontWeight||'normal')!=='normal'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontWeight: e.target.checked ? 'bold' : 'normal' } })} /> 粗体</label>
+                      {fontHasItalic ? (
+                        <label className="row-inline"><input type="checkbox" checked={(tpl.text?.fontStyle||'normal')==='italic'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontStyle: e.target.checked ? 'italic' : 'normal' } })} /> 斜体</label>
+                      ) : (
+                        <>
+                          <label className="row-inline" title="所选字体没有原生 italic 变体，开启仿斜以获得类似效果。">
+                            <input type="checkbox" checked={!!tpl.text?.italicSynthetic} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSynthetic: !!e.target.checked } })} /> 仿斜
+                          </label>
+                          {tpl.text?.italicSynthetic && (
+                            <div className="control">
+                              <input className="input-xxs" type="number" step={1} value={tpl.text?.italicSkewDeg ?? 12} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSkewDeg: Number(e.target.value) } })} />
+                              <span className="unit">°</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>不透明度</label>
+                    <div className="control">
+                      <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>颜色</label>
+                    <div className="control">
+                      <input type="color" value={tpl.text?.color || '#ffffff'} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, color: e.target.value } })} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>基线微调</label>
+                    <div className="control">
+                      <input type="number" step={1} value={tpl.text?.baselineAdjust ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjust: Number(e.target.value) } })} />
+                      <span className="unit">px</span>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>水平微调</label>
+                    <div className="control">
+                      <input type="number" step={1} value={tpl.text?.baselineAdjustX ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjustX: Number(e.target.value) } })} />
+                      <span className="unit">px</span>
+                    </div>
                   </div>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                <label>字号 <input type="number" value={tpl.text?.fontSize || 32} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, fontSize: Number(e.target.value) } })} style={{ width: 80 }} /></label>
-                <label>粗体
-                  <input type="checkbox" checked={(tpl.text?.fontWeight||'normal')!=='normal'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontWeight: e.target.checked ? 'bold' : 'normal' } })} style={{ marginLeft: 6 }} />
-                </label>
-                {fontHasItalic ? (
-                  <label>斜体
-                    <input type="checkbox" checked={(tpl.text?.fontStyle||'normal')==='italic'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, fontStyle: e.target.checked ? 'italic' : 'normal' } })} style={{ marginLeft: 6 }} />
-                  </label>
-                ) : (
-                  <>
-                    <label title="所选字体没有原生 italic 变体，开启仿斜以获得类似效果。">
-                      仿斜
-                      <input type="checkbox" checked={!!tpl.text?.italicSynthetic} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSynthetic: !!e.target.checked } })} style={{ marginLeft: 6 }} />
-                    </label>
-                    {tpl.text?.italicSynthetic && (
-                      <label title="仿斜角度（度），通常 10–15 度较为自然。">
-                        角度°
-                        <input type="number" step={1} style={{ width: 72, marginLeft: 6 }} value={tpl.text?.italicSkewDeg ?? 12} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, italicSkewDeg: Number(e.target.value) } })} />
-                      </label>
-                    )}
-                  </>
-                )}
-                <label>不透明度 <input type="number" min={0} max={1} step={0.05} value={tpl.text?.opacity ?? 0.6} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, opacity: Number(e.target.value) } })} style={{ width: 80 }} /></label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  基线微调(px)
-                  <span
-                    style={{ display: 'inline-block', width: 16, height: 16, lineHeight: '16px', borderRadius: 8, background: '#e6f0ff', color: '#245', textAlign: 'center', cursor: 'default', fontSize: 12 }}
-                    title={
-                      '只影响导出图像的文字垂直位置，不改变预览位置。\n' +
-                      '用途：当你发现导出的水印比预览略高/略低时，用它来做像素级校准。\n' +
-                      '正数：导出向下移动；负数：导出向上移动。\n' +
-                      '单位：预览像素（会自动按图片尺寸换算成原图像素）。'
-                    }
-                  >?
-                  </span>
-                  <input type="number" step={1} value={tpl.text?.baselineAdjust ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjust: Number(e.target.value) } })} style={{ width: 100 }} />
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  水平微调(px)
-                  <span
-                    style={{ display: 'inline-block', width: 16, height: 16, lineHeight: '16px', borderRadius: 8, background: '#e6f0ff', color: '#245', textAlign: 'center', cursor: 'default', fontSize: 12 }}
-                    title={
-                      '只影响导出图像的文字水平位置，不改变预览位置。\n' +
-                      '用途：当你发现导出的水印相对预览略偏左/偏右时，用它来做像素级校准。\n' +
-                      '正数：导出向右移动；负数：导出向左移动。\n' +
-                      '单位：预览像素（会自动按图片尺寸换算成原图像素）。'
-                    }
-                  >?
-                  </span>
-                  <input type="number" step={1} value={tpl.text?.baselineAdjustX ?? 0} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, baselineAdjustX: Number(e.target.value) } })} style={{ width: 100 }} />
-                </label>
+                <div className="help">微调仅影响导出位置，不改变预览位置；单位为预览像素（导出时会按比例换算）。</div>
               </div>
+              {/* 内置搜索下拉已提供筛选，这里不再额外展示匹配结果面板 */}
+              {/* 移除面板外的重复内联控件，不透明度等均已纳入“字体与样式”表单 */}
               {/* 描边设置 */}
-              <fieldset style={{ marginTop: 8, border: '1px solid #eee' }}>
-                <legend style={{ color: '#666' }}>描边</legend>
-                <label>
-                  <input type="checkbox" checked={!!tpl.text?.outline?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), enabled: !!e.target.checked } } })} /> 启用
-                </label>
-                {tpl.text?.outline?.enabled && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-                    <label>颜色 <input type="color" value={tpl.text?.outline?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), color: e.target.value } } })} /></label>
-                    <label>宽度(px) <input type="number" min={0} step={1} style={{ width: 80 }} value={tpl.text?.outline?.width ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), width: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /></label>
-                    <label>不透明度 <input type="number" min={0} max={1} step={0.05} style={{ width: 80 }} value={tpl.text?.outline?.opacity ?? 0.25} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></label>
+              <div className="panel" style={{ marginTop: 8 }}>
+                <div className="panel-title">描边</div>
+                <div className="form labels-left auto-label tiny-gap uniform-fields">
+                  <div className="form-row">
+                    <label>启用</label>
+                    <div className="control">
+                      <input type="checkbox" checked={!!tpl.text?.outline?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), enabled: !!e.target.checked } } })} />
+                    </div>
                   </div>
-                )}
-              </fieldset>
+                  {tpl.text?.outline?.enabled && (
+                    <>
+                      <div className="form-row">
+                        <label>颜色</label>
+                        <div className="control"><input type="color" value={tpl.text?.outline?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), color: e.target.value } } })} /></div>
+                      </div>
+                      <div className="form-row">
+                        <label>宽度</label>
+                        <div className="control"><input type="number" min={0} step={1} value={tpl.text?.outline?.width ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), width: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /> <span className="unit">px</span></div>
+                      </div>
+                      <div className="form-row">
+                        <label>不透明度</label>
+                        <div className="control"><input type="number" min={0} max={1} step={0.05} value={tpl.text?.outline?.opacity ?? 0.25} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, outline: { ...(tpl.text?.outline||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
               {/* 阴影设置 */}
-              <fieldset style={{ marginTop: 8, border: '1px solid #eee' }}>
-                <legend style={{ color: '#666' }}>阴影</legend>
-                <label>
-                  <input type="checkbox" checked={!!tpl.text?.shadow?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), enabled: !!e.target.checked } } })} /> 启用
-                </label>
-                {tpl.text?.shadow?.enabled && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 6, alignItems: 'center' }}>
-                    <label>颜色 <input type="color" value={tpl.text?.shadow?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), color: e.target.value } } })} /></label>
-                    <label>不透明度 <input type="number" min={0} max={1} step={0.05} style={{ width: 80 }} value={tpl.text?.shadow?.opacity ?? 0.3} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></label>
-                    <label>偏移X(px) <input type="number" step={1} style={{ width: 80 }} value={tpl.text?.shadow?.offsetX ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetX: Math.round(Number(e.target.value)||0) } } })} /></label>
-                    <label>偏移Y(px) <input type="number" step={1} style={{ width: 80 }} value={tpl.text?.shadow?.offsetY ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetY: Math.round(Number(e.target.value)||0) } } })} /></label>
-                    <label>模糊(px) <input type="number" min={0} step={1} style={{ width: 80 }} value={tpl.text?.shadow?.blur ?? 2} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), blur: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /></label>
+              <div className="panel" style={{ marginTop: 8 }}>
+                <div className="panel-title">阴影</div>
+                <div className="form labels-left auto-label tiny-gap uniform-fields">
+                  <div className="form-row">
+                    <label>启用</label>
+                    <div className="control">
+                      <input type="checkbox" checked={!!tpl.text?.shadow?.enabled} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), enabled: !!e.target.checked } } })} />
+                    </div>
                   </div>
-                )}
-              </fieldset>
-              <label style={{ display: 'block', marginTop: 8 }}>颜色 <input type="color" value={tpl.text?.color || '#ffffff'} onChange={(e: any) => setTpl({ ...tpl, text: { ...tpl.text!, color: e.target.value } })} /></label>
+                  {tpl.text?.shadow?.enabled && (
+                    <>
+                      <div className="form-row">
+                        <label>颜色</label>
+                        <div className="control"><input type="color" value={tpl.text?.shadow?.color || '#000000'} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), color: e.target.value } } })} /></div>
+                      </div>
+                      <div className="form-row">
+                        <label>不透明度</label>
+                        <div className="control"><input type="number" min={0} max={1} step={0.05} value={tpl.text?.shadow?.opacity ?? 0.3} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), opacity: Math.max(0, Math.min(1, Number(e.target.value)||0)) } } })} /></div>
+                      </div>
+                      <div className="form-row">
+                        <label>偏移 X</label>
+                        <div className="control"><input type="number" step={1} value={tpl.text?.shadow?.offsetX ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetX: Math.round(Number(e.target.value)||0) } } })} /> <span className="unit">px</span></div>
+                      </div>
+                      <div className="form-row">
+                        <label>偏移 Y</label>
+                        <div className="control"><input type="number" step={1} value={tpl.text?.shadow?.offsetY ?? 1} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), offsetY: Math.round(Number(e.target.value)||0) } } })} /> <span className="unit">px</span></div>
+                      </div>
+                      <div className="form-row">
+                        <label>模糊</label>
+                        <div className="control"><input type="number" min={0} step={1} value={tpl.text?.shadow?.blur ?? 2} onChange={(e:any)=> setTpl({ ...tpl, text: { ...tpl.text!, shadow: { ...(tpl.text?.shadow||{}), blur: Math.max(0, Math.round(Number(e.target.value)||0)) } } })} /> <span className="unit">px</span></div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {tpl.type === 'image' && (
-            <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button onClick={async ()=>{
-                  if (!hasApi()) { alert('预加载未生效：无法访问系统文件对话框。'); return }
-                  const paths = await window.api.openFiles()
-                  const p = Array.isArray(paths) && paths[0] ? paths[0] : ''
-                  if (!p) return
-                  setTpl(prev => ({ ...prev, type: 'image', image: { ...(prev.image||{}), path: p, opacity: prev.image?.opacity ?? 0.6, scale: prev.image?.scale ?? 1, scaleMode: prev.image?.scaleMode || 'proportional', scaleX: prev.image?.scaleX ?? 1, scaleY: prev.image?.scaleY ?? 1 } }))
-                }}>选择图片...</button>
-                <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: '' } }))} disabled={!tpl.image?.path}>清除</button>
-                <button onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: 1, scaleX: 1, scaleY: 1 } }))}>重置缩放</button>
-              </div>
-              {/* 旋转设置 */}
-              <div style={{ marginTop: 8 }}>
-                <label style={{ fontWeight: 600 }}>旋转角度（度）</label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                  <input
-                    type="range"
-                    min={-180}
-                    max={180}
-                    step={1}
-                    value={tpl.image?.rotation ?? 0}
-                    onChange={e => setTpl(prev => ({
-                      ...prev,
-                      image: {
-                        ...(prev.image||{}),
-                        path: prev.image?.path || '',
-                        rotation: Number(e.target.value)
-                      }
-                    }))}
-                    style={{ flex: 1 }}
-                  />
-                  <input
-                    type="number"
-                    min={-180}
-                    max={180}
-                    step={1}
-                    value={tpl.image?.rotation ?? 0}
-                    onChange={e => setTpl(prev => ({
-                      ...prev,
-                      image: {
-                        ...(prev.image||{}),
-                        path: prev.image?.path || '',
-                        rotation: Number(e.target.value)
-                      }
-                    }))}
-                    style={{ width: 72 }}
-                  />
-                  <button onClick={()=> setTpl(prev => ({
-                    ...prev,
-                    image: {
-                      ...(prev.image||{}),
-                      path: prev.image?.path || '',
-                      rotation: 0
-                    }
-                  }))}>重置</button>
-                </div>
-                <div style={{ color:'#888', fontSize:12, marginTop:2 }}>支持任意角度旋转，正值顺时针，负值逆时针。</div>
-              </div>
-              {tpl.image?.path ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <div style={{ width: 48, height: 48, border: '1px solid #eee', borderRadius: 4, overflow: 'hidden', background: '#f3f3f3' }}>
-                    <img
-                      src={tpl.image.path.startsWith('file:')? tpl.image.path : ('file:///' + encodeURI(tpl.image.path.replace(/\\/g,'/')))}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain', imageOrientation: 'from-image' as any }}
-                    />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, color: '#555' }} title={tpl.image.path}>
-                    {(tpl.image.path.split(/\\/).pop())}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ color: '#888' }}>未选择图片。建议使用带透明通道的 PNG 作为水印 Logo。</div>
-              )}
-
-              <div style={{ marginTop: 4 }}>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>缩放模式</div>
-                <label><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='proportional'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'proportional' } }))} /> 等比</label>
-                <label style={{ marginLeft: 12 }}><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='free'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free' } }))} /> 自由</label>
-              </div>
-
-              {(tpl.image?.scaleMode||'proportional') === 'proportional' ? (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    缩放（%）
-                    <input
-                      type="number" min={1} max={1000} step={1}
-                      value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
-                      onChange={(e:any)=>{
-                        const pct = Math.max(1, Math.round(Number(e.target.value)||0))
-                        setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
+            <div className="panel" style={{ marginTop: 8 }}>
+              <div className="panel-title">图片水印</div>
+              <div className="form labels-left auto-label tiny-gap uniform-fields">
+                <div className="form-row">
+                  <label>操作</label>
+                  <div className="control">
+                    <button className="btn"
+                      onClick={async ()=>{
+                        if (!hasApi()) { alert('预加载未生效：无法访问系统文件对话框。'); return }
+                        const paths = await window.api.openFiles()
+                        const p = Array.isArray(paths) && paths[0] ? paths[0] : ''
+                        if (!p) return
+                        setTpl(prev => ({ ...prev, type: 'image', image: { ...(prev.image||{}), path: p, opacity: prev.image?.opacity ?? 0.6, scale: prev.image?.scale ?? 1, scaleMode: prev.image?.scaleMode || 'proportional', scaleX: prev.image?.scaleX ?? 1, scaleY: prev.image?.scaleY ?? 1 } }))
                       }}
-                      style={{ width: 96 }}
-                    />
-                  </label>
-                  <input type="range" min={1} max={400} step={1}
-                    value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
-                    onChange={(e:any)=>{
-                      const pct = Math.max(1, Math.round(Number(e.target.value)||0))
-                      setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
-                    }}
-                  />
+                    >选择图片...</button>
+                    <button className="btn" onClick={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: '' } }))} disabled={!tpl.image?.path}>清除</button>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <label>
-                      宽度（%）
-                      <input
-                        type="number" min={1} max={1000} step={1}
+                <div className="form-row">
+                  <label>预览</label>
+                  <div className="control" style={{ width: '100%', minWidth: 0 }}>
+                    {tpl.image?.path ? (
+                      <>
+                        <div style={{ width: 48, height: 48, border: '1px solid #eee', borderRadius: 4, overflow: 'hidden', background: '#f3f3f3' }}>
+                          <img
+                            src={tpl.image.path.startsWith('file:')? tpl.image.path : ('file:///' + encodeURI(tpl.image.path.replace(/\\/g,'/')))}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', imageOrientation: 'from-image' as any }}
+                          />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, color: '#555' }} title={tpl.image.path}>
+                          {(tpl.image.path.split(/\\/).pop())}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="help">未选择图片。建议使用带透明通道的 PNG 作为水印 Logo。</span>
+                    )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label>旋转</label>
+                  <div className="control" style={{ width: '100%' }}>
+                    <input type="range" min={-180} max={180} step={1}
+                      value={tpl.image?.rotation ?? 0}
+                      onChange={e => setTpl(prev => ({
+                        ...prev,
+                        image: { ...(prev.image||{}), path: prev.image?.path || '', rotation: Number(e.target.value) }
+                      }))}
+                      style={{ flex: 1 }} />
+                    <input className="input-xs" type="number" min={-180} max={180} step={1}
+                      value={tpl.image?.rotation ?? 0}
+                      onChange={e => setTpl(prev => ({
+                        ...prev,
+                        image: { ...(prev.image||{}), path: prev.image?.path || '', rotation: Number(e.target.value) }
+                      }))} />
+                    <span className="unit">°</span>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label>缩放模式</label>
+                  <div className="control">
+                    <label className="row-inline"><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='proportional'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'proportional' } }))} /> 等比</label>
+                    <label className="row-inline"><input type="radio" name="imgScaleMode" checked={(tpl.image?.scaleMode||'proportional')==='free'} onChange={()=> setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free' } }))} /> 自由</label>
+                  </div>
+                </div>
+                {(tpl.image?.scaleMode||'proportional') === 'proportional' ? (
+                  <div className="form-row">
+                    <label>缩放</label>
+                    <div className="control" style={{ width: '100%' }}>
+                      <input type="range" min={1} max={400} step={1}
+                        value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
+                        onChange={(e:any)=>{
+                          const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                          setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
+                        }} style={{ flex: 1 }} />
+                      <input className="input-xs" type="number" min={1} max={1000} step={1}
+                        value={Math.max(1, Math.round((tpl.image?.scale ?? 1) * 100))}
+                        onChange={(e:any)=>{
+                          const pct = Math.max(1, Math.round(Number(e.target.value)||0))
+                          setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scale: pct/100 } }))
+                        }} />
+                      <span className="unit">%</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="form-row">
+                      <label>宽度</label>
+                      <div className="control"><input type="number" min={1} max={1000} step={1}
                         value={Math.max(1, Math.round((tpl.image?.scaleX ?? 1) * 100))}
                         onChange={(e:any)=>{
                           const pct = Math.max(1, Math.round(Number(e.target.value)||0))
                           setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free', scaleX: pct/100 } }))
-                        }}
-                        style={{ width: 96, marginLeft: 6 }}
-                      />
-                    </label>
-                    <label>
-                      高度（%）
-                      <input
-                        type="number" min={1} max={1000} step={1}
+                        }} /> <span className="unit">%</span></div>
+                    </div>
+                    <div className="form-row">
+                      <label>高度</label>
+                      <div className="control"><input type="number" min={1} max={1000} step={1}
                         value={Math.max(1, Math.round((tpl.image?.scaleY ?? 1) * 100))}
                         onChange={(e:any)=>{
                           const pct = Math.max(1, Math.round(Number(e.target.value)||0))
                           setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', scaleMode: 'free', scaleY: pct/100 } }))
-                        }}
-                        style={{ width: 96, marginLeft: 6 }}
-                      />
-                    </label>
+                        }} /> <span className="unit">%</span></div>
+                    </div>
+                  </>
+                )}
+                <div className="form-row">
+                  <label>不透明度</label>
+                  <div className="control" style={{ width: '100%' }}>
+                    <input type="range" min={0} max={100} step={1}
+                      value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
+                      onChange={(e:any)=>{
+                        const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
+                        setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
+                      }} style={{ flex: 1 }} />
+                    <input className="input-xs" type="number" min={0} max={100} step={1}
+                      value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
+                      onChange={(e:any)=>{
+                        const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
+                        setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
+                      }} />
+                    <span className="unit">%</span>
                   </div>
                 </div>
-              )}
-
-              <div style={{ marginTop: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>不透明度</span>
-                  <input type="number" min={0} max={100} step={1}
-                    value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
-                    onChange={(e:any)=>{
-                      const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
-                      setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
-                    }}
-                    style={{ width: 72 }}
-                  />
-                </div>
-                <input type="range" min={0} max={100} step={1}
-                  value={Math.round(((tpl.image?.opacity ?? 0.6) * 100))}
-                  onChange={(e:any)=>{
-                    const v = Math.max(0, Math.min(100, Math.round(Number(e.target.value)||0)))
-                    setTpl(prev => ({ ...prev, image: { ...(prev.image||{}), path: prev.image?.path || '', opacity: v/100 } }))
-                  }}
-                  style={{ width: '100%' }}
-                />
               </div>
+              <div className="help">旋转支持正负角度；缩放支持等比或自由宽高；不透明度单位为 %。</div>
             </div>
           )}
+          </div>
+          )}
 
-          <div style={{ marginTop: 12 }}>
-            <div>九宫格</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {activeTab === 'layout' && (
+          <div className="panel" style={{ marginTop: 12 }}>
+            <div className="panel-title">布局</div>
+            <div className="grid-3x3" style={{ marginBottom: 8 }}>
               {presets.map(p => (
                 <button
                   key={p.key}
+                  className={`cell ${tpl.layout.preset===p.key ? 'active' : ''}`}
                   onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, preset: p.key, offsetX: 0, offsetY: 0 } })}
-                  style={{ padding: 8, background: tpl.layout.preset===p.key?'#cde':'#fafafa' }}
-                >{p.label}</button>
+                  title={p.label}
+                />
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <label>X偏移 <input type="number" value={tpl.layout.offsetX || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: Number(e.target.value) } })} style={{ width: 80 }} /></label>
-              <label>Y偏移 <input type="number" value={tpl.layout.offsetY || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetY: Number(e.target.value) } })} style={{ width: 80 }} /></label>
-              <button onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: 0, offsetY: 0 } })}>重置偏移</button>
-            </div>
-            <label style={{ display: 'block', marginTop: 6 }}>
-              <input type="checkbox" checked={!!tpl.layout.allowOverflow} onChange={(e:any)=> setTpl({ ...tpl, layout: { ...tpl.layout, allowOverflow: !!e.target.checked } })} />
-              允许水印越界显示（仅显示可见部分）
-            </label>
-          </div>
-
-          <h3 style={{ marginTop: 16 }}>导出</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <label><input type="radio" checked={format==='png'} onChange={() => setFormat('png')} /> PNG</label>
-            <label><input type="radio" checked={format==='jpeg'} onChange={() => setFormat('jpeg')} /> JPEG</label>
-          </div>
-          {format === 'jpeg' && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>JPEG 质量</span>
-                <input type="number" min={0} max={100} value={jpegQuality}
-                  onChange={(e:any)=> setJpegQuality(Math.max(0, Math.min(100, Number(e.target.value)||0)))}
-                  style={{ width: 72 }} />
-              </div>
-              <input type="range" min={0} max={100} step={1} value={jpegQuality}
-                onChange={(e:any)=> setJpegQuality(Number(e.target.value)||0)}
-                style={{ width: '100%' }} />
-              <label style={{ display: 'block', marginTop: 6 }}>
-                <input type="checkbox" checked={enableCompressedPreview} onChange={(e:any)=> setEnableCompressedPreview(!!e.target.checked)} />
-                压缩实时预览（在预览中模拟 JPEG 质量效果）
-              </label>
-              {enableCompressedPreview && files.length>0 && (
-                <div style={{ marginTop: 8, display: 'inline-block', border: '1px dashed #ccc', borderRadius: 4, overflow: 'hidden' }}>
-                  <CompressedPreview
-                    template={tpl}
-                    imagePath={files[selected]}
-                    jpegQuality={jpegQuality}
-                    resize={((): ResizeConfig => {
-                      if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
-                      if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
-                      return { mode: 'original' }
-                    })()}
-                    w={220}
-                    h={138}
-                  />
+            <div className="form labels-left controls-left auto-label tiny-gap uniform-fields">
+              <div className="form-row">
+                <label>X 偏移</label>
+                <div className="control">
+                  <input className="input-xs" type="number" value={tpl.layout.offsetX || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetX: Number(e.target.value) } })} />
+                  <span className="unit">px</span>
                 </div>
+              </div>
+              <div className="form-row">
+                <label>Y 偏移</label>
+                <div className="control">
+                  <input className="input-xs" type="number" value={tpl.layout.offsetY || 0} onChange={(e: any) => setTpl({ ...tpl, layout: { ...tpl.layout, offsetY: Number(e.target.value) } })} />
+                  <span className="unit">px</span>
+                </div>
+              </div>
+              <div className="form-row">
+                {/* 越界显示：默认已开启，控件移除 */}
+              </div>
+            </div>
+          </div>
+          )}
+
+          {activeTab === 'export' && (
+          <>
+          <div className="panel" style={{ marginTop: 16 }}>
+            <div className="panel-title">导出</div>
+            <div className="form labels-left auto-label tiny-gap uniform-fields">
+              <div className="form-row">
+                <label>格式</label>
+                <div className="control">
+                  <label className="row-inline"><input type="radio" checked={format==='png'} onChange={() => setFormat('png')} /> PNG</label>
+                  <label className="row-inline"><input type="radio" checked={format==='jpeg'} onChange={() => setFormat('jpeg')} /> JPEG</label>
+                </div>
+              </div>
+              {format === 'jpeg' && (
+                <>
+                  <div className="form-row">
+                    <label>JPEG 质量</label>
+                    <div className="control" style={{ width: '100%' }}>
+                      <input type="range" min={0} max={100} step={1} value={jpegQuality}
+                        onChange={(e:any)=> setJpegQuality(Number(e.target.value)||0)} style={{ flex: 1 }} />
+                      <input className="input-xs" type="number" min={0} max={100} value={jpegQuality}
+                        onChange={(e:any)=> setJpegQuality(Math.max(0, Math.min(100, Number(e.target.value)||0)))} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>压缩预览</label>
+                    <div className="control">
+                      <label className="row-inline">
+                        <input type="checkbox" checked={enableCompressedPreview} onChange={(e:any)=> setEnableCompressedPreview(!!e.target.checked)} />
+                        <span className="muted">在预览中模拟 JPEG 质量</span>
+                      </label>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
-          )}
+            {format === 'jpeg' && enableCompressedPreview && files.length>0 && (
+              <div style={{ marginTop: 8, display: 'inline-block', border: '1px dashed #ccc', borderRadius: 4, overflow: 'hidden' }}>
+                <CompressedPreview
+                  template={tpl}
+                  imagePath={files[selected]}
+                  jpegQuality={jpegQuality}
+                  resize={((): ResizeConfig => {
+                    if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                    if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                    return { mode: 'original' }
+                  })()}
+                  w={220}
+                  h={138}
+                />
+              </div>
+            )}
+          </div>
           {/* 预计导出尺寸提示 */}
           <EstimatedSizeHint
             size={currSize}
@@ -987,66 +1076,84 @@ function App() {
             heightVal={customHeight}
             percentVal={resizePercent}
           />
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>尺寸调整（可选）</div>
-            <div style={{ display: 'grid', gap: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="radio" name="resizeMode" checked={resizeMode==='original'} onChange={()=>setResizeMode('original')} />
-                原始尺寸（不调整）
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="radio" name="resizeMode" checked={resizeMode==='percent'} onChange={()=>setResizeMode('percent')} />
-                按百分比（%）
-                <input
-                  type="number" min={1} step={1} value={resizePercent}
-                  onChange={(e:any)=> { setResizePercent(Math.max(1, Math.round(Number(e.target.value)||0))); setResizeMode('percent') }}
-                  style={{ width: 96 }}
-                />
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="radio" name="resizeMode" checked={resizeMode==='custom'} onChange={()=>setResizeMode('custom')} />
-                自定义长宽（px）
-                <input
-                  type="number" min={0} step={1} placeholder="宽"
-                  value={customWidth}
-                  onChange={(e:any)=> { setCustomWidth(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }}
-                  style={{ width: 86 }}
-                />
-                ×
-                <input
-                  type="number" min={0} step={1} placeholder="高"
-                  value={customHeight}
-                  onChange={(e:any)=> { setCustomHeight(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }}
-                  style={{ width: 86 }}
-                />
-              </label>
-              <div style={{ color:'#666', fontSize:12 }}>
-                说明：
-                - 百分比：基于原图尺寸等比缩放。
-                - 自定义长宽：可同时填写宽和高；如仅填一边，则按原始宽高比自动推算另一边；填写 0 表示该边未指定。
+          <div className="panel" style={{ marginTop: 12 }}>
+            <div className="panel-title">尺寸调整</div>
+            <div className="form labels-left controls-left auto-label gap-20 uniform-fields resize-form">
+              <div className="form-row">
+                <label className="left">模式</label>
+                <div className="control">
+                  <label className="row-inline"><input type="radio" name="resizeMode" checked={resizeMode==='original'} onChange={()=>setResizeMode('original')} /> 原始尺寸</label>
+                  <label className="row-inline"><input type="radio" name="resizeMode" checked={resizeMode==='percent'} onChange={()=>setResizeMode('percent')} /> 百分比</label>
+                  <label className="row-inline"><input type="radio" name="resizeMode" checked={resizeMode==='custom'} onChange={()=>setResizeMode('custom')} /> 自定义</label>
+                </div>
+              </div>
+              {resizeMode==='percent' && (
+                <div className="form-row">
+                  <label>比例</label>
+                  <div className="control"><input className="input-sm" type="number" min={1} step={1} value={resizePercent}
+                    onChange={(e:any)=> { setResizePercent(Math.max(1, Math.round(Number(e.target.value)||0))); setResizeMode('percent') }} /> <span className="unit">%</span></div>
+                </div>
+              )}
+              {resizeMode==='custom' && (
+                <>
+                  <div className="form-row">
+                    <label className="left">宽度</label>
+                    <div className="control"><input className="input-sm" type="number" min={0} step={1} value={customWidth}
+                      onChange={(e:any)=> { setCustomWidth(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }} /> <span className="unit">px</span></div>
+                  </div>
+                  <div className="form-row">
+                    <label className="left">高度</label>
+                    <div className="control"><input className="input-sm" type="number" min={0} step={1} value={customHeight}
+                      onChange={(e:any)=> { setCustomHeight(Math.max(0, Math.round(Number(e.target.value)||0))); setResizeMode('custom') }} /> <span className="unit">px</span></div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="panel-sub">说明：百分比基于原图尺寸等比缩放；自定义长宽可填一边按原始宽高比推算，填 0 表示未指定。</div>
+          </div>
+          <div className="panel" style={{ marginTop: 12 }}>
+            <div className="panel-title">命名与导出</div>
+            <div className="form labels-left controls-left auto-label micro-gap uniform-fields">
+              <div className="form-row">
+                <label className="left">导出范围</label>
+                <div className="control">
+                  <label className="row-inline">
+                    <input type="radio" name="exportScope" checked={exportScope==='current'} onChange={() => setExportScope('current')} /> 仅当前预览
+                  </label>
+                  <label className="row-inline">
+                    <input type="radio" name="exportScope" checked={exportScope==='all'} onChange={() => setExportScope('all')} /> 列表全部
+                  </label>
+                </div>
+              </div>
+              <div className="form-row">
+                <label className="left">前缀</label>
+                <div className="control">
+                  <input type="text" value={naming.prefix || ''} onChange={(e: any) => setNaming({ ...naming, prefix: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-row">
+                <label className="left">后缀</label>
+                <div className="control">
+                  <input type="text" value={naming.suffix || ''} onChange={(e: any) => setNaming({ ...naming, suffix: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-row">
+                <label className="left">导出目录</label>
+                <div className="control wrap">
+                  <button className="btn sm" onClick={onSelectOutput}>选择导出文件夹</button>
+                  <div style={{ color: '#666', wordBreak: 'break-all' }}>{outputDir || '未选择'}</div>
+                </div>
+              </div>
+              <div className="form-row">
+                <label />
+                <div className="control">
+                  <button className="btn primary" onClick={onExport} disabled={!files.length || !outputDir}>开始导出</button>
+                </div>
               </div>
             </div>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <div>导出范围</div>
-            <label>
-              <input type="radio" name="exportScope" checked={exportScope==='current'} onChange={() => setExportScope('current')} /> 仅当前预览
-            </label>
-            <label style={{ marginLeft: 12 }}>
-              <input type="radio" name="exportScope" checked={exportScope==='all'} onChange={() => setExportScope('all')} /> 列表全部
-            </label>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <label>前缀 <input value={naming.prefix || ''} onChange={(e: any) => setNaming({ ...naming, prefix: e.target.value })} /></label>
-            <label style={{ marginLeft: 8 }}>后缀 <input value={naming.suffix || ''} onChange={(e: any) => setNaming({ ...naming, suffix: e.target.value })} /></label>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button onClick={onSelectOutput}>选择导出文件夹</button>
-            <div style={{ color: '#666', wordBreak: 'break-all' }}>{outputDir || '未选择'}</div>
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <button onClick={onExport} disabled={!files.length || !outputDir}>开始导出</button>
-          </div>
+          </>
+          )}
         </section>
       </main>
     </div>

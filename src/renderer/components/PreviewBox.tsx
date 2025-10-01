@@ -46,6 +46,8 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   const yAbs = geom.oy + yLocal
 
   const dragging = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const lastMoveRef = useRef<{ x: number; y: number } | null>(null)
 
   // transformOriginByPreset 已迁移至 utils/anchor
 
@@ -78,28 +80,36 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   }
   function handleMove(e: any) {
     if (!dragging.current) return
-    const dx = e.clientX - dragging.current.startX
-    const dy = e.clientY - dragging.current.startY
-    const minX = 0, maxX = W
-    const minY = 0, maxY = H
-    // 允许越界时，不再将拖拽点钳制在容器内，最大限度还原真实偏移
-    const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
-    const nxRaw = Math.round(dragging.current.baseX + dx)
-    const nyRaw = Math.round(dragging.current.baseY + dy)
-    const nx = allowOverflow ? nxRaw : Math.max(minX, Math.min(maxX, nxRaw))
-    const ny = allowOverflow ? nyRaw : Math.max(minY, Math.min(maxY, nyRaw))
+    lastMoveRef.current = { x: e.clientX, y: e.clientY }
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        const last = lastMoveRef.current
+        if (!last || !dragging.current) return
+        const dx = last.x - dragging.current.startX
+        const dy = last.y - dragging.current.startY
+        const minX = 0, maxX = W
+        const minY = 0, maxY = H
+        const allowOverflow = ((template.layout as any)?.allowOverflow !== false)
+        const nxRaw = Math.round(dragging.current.baseX + dx)
+        const nyRaw = Math.round(dragging.current.baseY + dy)
+        const nx = allowOverflow ? nxRaw : Math.max(minX, Math.min(maxX, nxRaw))
+        const ny = allowOverflow ? nyRaw : Math.max(minY, Math.min(maxY, nyRaw))
 
-    const xOrig = (nx - geom.ox) / geom.scale
-    const yOrig = (ny - geom.oy) / geom.scale
-    const base = geom.calcPosition(template.layout.preset, 0, 0, true)
-    const offsetX = Math.round(xOrig - base.left)
-    const offsetY = Math.round(yOrig - base.top)
-    onChange({ ...template.layout, offsetX, offsetY })
+        const xOrig = (nx - geom.ox) / geom.scale
+        const yOrig = (ny - geom.oy) / geom.scale
+        const base = geom.calcPosition(template.layout.preset, 0, 0, true)
+        const offsetX = Math.round(xOrig - base.left)
+        const offsetY = Math.round(yOrig - base.top)
+        onChange({ ...template.layout, offsetX, offsetY })
+      })
+    }
   }
   function handleUp() {
     dragging.current = null
     window.removeEventListener('mousemove', handleMove as any)
     window.removeEventListener('mouseup', handleUp as any)
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
   }
 
   return (
@@ -125,7 +135,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
           <ImageWatermarkPreview
             wmUrl={wmUrl}
             wmSize={wmSize}
-            setWmSize={(s)=> setWmSize(s)}
+            setWmSize={(s: { w: number; h: number })=> setWmSize(s)}
             geom={{ xDisp: xLocal, yDisp: yLocal, scale: geom.scale }}
             template={template}
             onMouseDown={handleDown}

@@ -9,7 +9,7 @@ import { transformOriginByPreset } from '../utils/anchor'
 import { hexToRgba } from '../utils/color'
 import { wrapFontFamily } from '../utils/font'
 
-export function TextWatermarkPreview({
+function TextWatermarkPreviewInner({
   geom,
   template,
   onMouseDown,
@@ -43,7 +43,8 @@ export function TextWatermarkPreview({
   const vAlign = getVAlignByPreset(template.layout.preset)
   const fontSize = Number(template.text?.fontSize || 32)
   let dyAdjust = 0
-  if (vAlign === 'top') dyAdjust = Math.round(fontSize * 0.8)
+  // 顶部对齐时不再额外下移，确保 tl/tc/tr 紧贴上边距
+  if (vAlign === 'top') dyAdjust = 0
   else if (vAlign === 'middle') dyAdjust = fontSize * 0.40
   else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSize * 0.2)
 
@@ -68,7 +69,11 @@ export function TextWatermarkPreview({
     'translate(-100%, -100%)'
   )
   const skew = template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : ''
-  const transform = `${translate}${rotation ? ` rotate(${rotation}deg)` : ''}${skew}`
+  // 先做锚点百分比平移，再做像素级基线/水平微调，最后旋转/仿斜
+  const pixelAdjust = (dxAdjust !== 0 || dyAdjust !== 0)
+    ? ` translate(${Math.round(dxAdjust)}px, ${Math.round(dyAdjust)}px)`
+    : ''
+  const transform = `${translate}${pixelAdjust}${rotation ? ` rotate(${rotation}deg)` : ''}${skew}`
 
   return (
     <div
@@ -80,6 +85,10 @@ export function TextWatermarkPreview({
         top: geom.yDisp,
         transformOrigin: transformOriginByPreset(template.layout.preset),
         transform,
+        display: 'inline-block',
+        whiteSpace: 'pre',          // 不自动换行，保留手动换行
+        wordBreak: 'keep-all',      // CJK 文本尽量不分词换行
+        overflow: 'visible',
         color: template.text?.color,
         opacity: template.text?.opacity ?? 0.6,
         fontSize: template.text?.fontSize,
@@ -88,11 +97,11 @@ export function TextWatermarkPreview({
         fontWeight: (template.text?.fontWeight as any) || 'normal',
         fontStyle: (template.text?.fontStyle as any) || 'normal',
         WebkitTextStroke: (template.text?.outline?.enabled
-          ? `${Math.max(0, template.text?.outline?.width || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}`
+          ? `${Math.max(1, Number(template.text?.outline?.width) || 0)}px ${hexToRgba(template.text?.outline?.color, template.text?.outline?.opacity ?? 1)}`
           : undefined
         ) as any,
         textShadow: (template.text?.shadow?.enabled
-          ? `${Math.round(template.text?.shadow?.offsetX || 0)}px ${Math.round(template.text?.shadow?.offsetY || 0)}px ${Math.max(0, template.text?.shadow?.blur || 0)}px ${hexToRgba(template.text?.shadow?.color, template.text?.shadow?.opacity ?? 1)}`
+          ? `${Math.round(Number(template.text?.shadow?.offsetX) || 0)}px ${Math.round(Number(template.text?.shadow?.offsetY) || 0)}px ${Math.max(1, Number(template.text?.shadow?.blur) || 0)}px ${hexToRgba(template.text?.shadow?.color, template.text?.shadow?.opacity ?? 1)}`
           : '0 0 1px rgba(0,0,0,.2)'
         ),
         cursor: 'move',
@@ -103,3 +112,34 @@ export function TextWatermarkPreview({
     </div>
   )
 }
+
+function areEqual(prev: any, next: any) {
+  if (prev.geom.xDisp !== next.geom.xDisp || prev.geom.yDisp !== next.geom.yDisp) return false
+  const pt = prev.template?.text || {}
+  const nt = next.template?.text || {}
+  // 对文本自身的关键属性进行比较
+  if (pt.content !== nt.content) return false
+  if ((pt.fontSize||32) !== (nt.fontSize||32)) return false
+  if (pt.fontFamily !== nt.fontFamily) return false
+  if ((pt.fontWeight||'normal') !== (nt.fontWeight||'normal')) return false
+  if ((pt.fontStyle||'normal') !== (nt.fontStyle||'normal')) return false
+  if ((pt.opacity??0.6) !== (nt.opacity??0.6)) return false
+  if (pt.color !== nt.color) return false
+  if ((pt.outline?.enabled||false) !== (nt.outline?.enabled||false)) return false
+  if (pt.outline?.color !== nt.outline?.color) return false
+  if ((pt.outline?.width||0) !== (nt.outline?.width||0)) return false
+  if ((pt.outline?.opacity||0) !== (nt.outline?.opacity||0)) return false
+  if ((pt.shadow?.enabled||false) !== (nt.shadow?.enabled||false)) return false
+  if (pt.shadow?.color !== nt.shadow?.color) return false
+  if ((pt.shadow?.offsetX||0) !== (nt.shadow?.offsetX||0)) return false
+  if ((pt.shadow?.offsetY||0) !== (nt.shadow?.offsetY||0)) return false
+  if ((pt.shadow?.blur||0) !== (nt.shadow?.blur||0)) return false
+  if ((pt.rotation||0) !== (nt.rotation||0)) return false
+  if ((pt.italicSynthetic||false) !== (nt.italicSynthetic||false)) return false
+  if ((pt.italicSkewDeg||0) !== (nt.italicSkewDeg||0)) return false
+  // 与布局相关：仅 preset 影响 transform/对齐，offset 在 PreviewBox 中已转为 geom
+  if (prev.template?.layout?.preset !== next.template?.layout?.preset) return false
+  return true
+}
+
+export const TextWatermarkPreview = React.memo(TextWatermarkPreviewInner, areEqual)
