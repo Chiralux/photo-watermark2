@@ -4,7 +4,7 @@ import os from 'node:os'
 import sharp from 'sharp'
 import PQueue from 'p-queue'
 import { calcPosition, getImageAnchorFactors } from '../watermark-geometry.js'
-import { buildTextSVG } from '../utils/svg.js'
+import { buildTextSVG, buildTextSpriteSVG } from '../utils/svg.js'
 import { ensureDir } from '../utils/files.js'
 import { buildOutputPath } from '../utils/templates.js'
 
@@ -64,8 +64,114 @@ export function registerExportIpc(ipcMain, isDev) {
 
       let overlayInput
       if (type === 'text') {
-        const svg = buildTextSVG(text, layout, targetW, targetH)
-        overlayInput = await sharp(Buffer.from(svg)).png().resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
+        // 1) 生成文本精灵 PNG，并自动裁掉透明边
+  const spriteSvg = buildTextSpriteSVG(text, targetW, targetH)
+        let wmBuf = await sharp(Buffer.from(spriteSvg)).png().toBuffer()
+        try { wmBuf = await sharp(wmBuf).trim().toBuffer() } catch {}
+        // 2) 将其当作图片水印，复用图片定位/旋转/越界流程
+        const wmm = await sharp(wmBuf).metadata()
+        const mode = text?.scaleMode || 'proportional'
+        let ww = 1, hh = 1
+        if (mode === 'free') {
+          const sx = Math.max(0.01, Number(text?.scaleX) || 1)
+          const sy = Math.max(0.01, Number(text?.scaleY) || 1)
+          ww = Math.max(1, Math.round((wmm.width || 1) * sx))
+          hh = Math.max(1, Math.round((wmm.height || 1) * sy))
+          wmBuf = await sharp(wmBuf).resize({ width: ww, height: hh, fit: 'fill' }).png().toBuffer()
+        } else {
+          const scale = Math.max(0.01, Number(text?.scale) || 1)
+          ww = Math.max(1, Math.round((wmm.width || 1) * scale))
+          hh = Math.max(1, Math.round((wmm.height || 1) * scale))
+          wmBuf = await sharp(wmBuf).resize({ width: ww, height: hh, fit: 'inside' }).png().toBuffer()
+        }
+        try {
+          const mdReal = await sharp(wmBuf).metadata()
+          if (mdReal?.width) ww = mdReal.width
+          if (mdReal?.height) hh = mdReal.height
+        } catch {}
+        const rot = Number.isFinite(text?.rotation) ? Number(text.rotation) : 0
+        let rotBuf = wmBuf
+        let rw = ww, rh = hh
+        let rawLeft, rawTop
+        // 与文本 SVG 逻辑一致：根据 preset 推导 vAlign 做基线微调，同时支持 baselineAdjust / baselineAdjustX
+        function getVAlignByPreset(preset) {
+          switch (preset) {
+            case 'tl': case 'tc': case 'tr': return 'top'
+            case 'cl': case 'center': case 'cr': return 'middle'
+            case 'bl': case 'bc': case 'br': return 'bottom'
+            default: return 'middle'
+          }
+        }
+        const vAlign = getVAlignByPreset(layout?.preset)
+        const fontSize = Math.max(8, Number(text?.fontSize) || 32)
+        const PREVIEW_W = 480, PREVIEW_H = 300
+        const scalePreviewToImage = Math.min(PREVIEW_W / (targetW || PREVIEW_W), PREVIEW_H / (targetH || PREVIEW_H))
+        const fontSizeImage = Math.max(8, fontSize / (scalePreviewToImage || 1))
+        let dyAdjust = 0
+        if (vAlign === 'top') dyAdjust = Math.round(fontSizeImage * 0.8)
+        else if (vAlign === 'middle') dyAdjust = fontSizeImage * 0.40
+        else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSizeImage * 0.2)
+        if (Number.isFinite(text?.baselineAdjust)) dyAdjust += Number(text?.baselineAdjust) / (scalePreviewToImage || 1)
+        let dxAdjust = 0
+        if (Number.isFinite(text?.baselineAdjustX)) dxAdjust += Number(text?.baselineAdjustX) / (scalePreviewToImage || 1)
+        const pos0 = calcPosition(layout, targetW, targetH, !(layout?.allowOverflow !== false))
+        const pos = { left: Math.round(pos0.left + dxAdjust), top: Math.round(pos0.top + dyAdjust) }
+        if ((rot % 360) !== 0) {
+          const { ax, ay } = getImageAnchorFactors(layout?.preset)
+          const anchorX = Math.round(ax * ww)
+          const anchorY = Math.round(ay * hh)
+          const canvasW = ww + 2 * Math.max(anchorX, ww - anchorX)
+          const canvasH = hh + 2 * Math.max(anchorY, hh - anchorY)
+          const offsetX = Math.round(canvasW / 2 - anchorX)
+          const offsetY = Math.round(canvasH / 2 - anchorY)
+          const centered = await sharp({ create: { width: canvasW, height: canvasH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+            .png()
+            .composite([{ input: wmBuf, left: offsetX, top: offsetY }])
+            .png()
+            .toBuffer()
+          const rotated = sharp(centered).rotate(rot, { background: { r:0,g:0,b:0,alpha:0 } })
+          rotBuf = await rotated.png().toBuffer()
+          try { const md = await sharp(rotBuf).metadata(); if (md?.width) rw = md.width; if (md?.height) rh = md.height } catch {}
+          const cx = Math.floor(rw / 2)
+          const cy = Math.floor(rh / 2)
+          rawLeft = Math.round(pos.left - cx)
+          rawTop  = Math.round(pos.top  - cy)
+        } else {
+          const { ax, ay } = getImageAnchorFactors(layout?.preset)
+          const anchorX = Math.round(ax * ww)
+          const anchorY = Math.round(ay * hh)
+          rawLeft = Math.round(pos.left - anchorX)
+          rawTop  = Math.round(pos.top  - anchorY)
+        }
+        const allowOverflow = (layout?.allowOverflow !== false)
+        if (allowOverflow) {
+          const destLeft = Math.max(0, rawLeft)
+          const destTop  = Math.max(0, rawTop)
+          const srcX = Math.max(0, -rawLeft)
+          const srcY = Math.max(0, -rawTop)
+          const visW = Math.max(0, Math.min(rw - srcX, targetW - destLeft))
+          const visH = Math.max(0, Math.min(rh - srcY, targetH - destTop))
+          if (visW > 0 && visH > 0) {
+            const piece = (srcX || srcY || visW !== rw || visH !== rh)
+              ? await sharp(rotBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
+              : rotBuf
+            overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+              .png()
+              .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, text.opacity ?? 0.6)) }])
+              .png()
+              .toBuffer()
+          } else {
+            overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } }).png().toBuffer()
+          }
+        } else {
+          const left = Math.max(0, Math.min(targetW - rw, rawLeft))
+          const top  = Math.max(0, Math.min(targetH - rh, rawTop))
+          overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
+            .png()
+            .composite([{ input: rotBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, text.opacity ?? 0.6)) }])
+            .png()
+            .toBuffer()
+        }
       } else if (type === 'image' && image?.path) {
         const wmm = await sharp(image.path).metadata()
         const mode = image.scaleMode || 'proportional'

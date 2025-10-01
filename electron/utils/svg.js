@@ -108,3 +108,86 @@ export function buildTextSVG(text, layout, W, H) {
       ${groupTransform ? `</g>` : ''}
   </svg>`
 }
+
+// 将文本渲染为“精灵图”SVG（不包含定位/旋转），用于当作图片叠加。
+// 之后在主进程里再进行旋转、锚点定位、越界裁剪，与图片水印完全一致。
+export function buildTextSpriteSVG(text, W, H) {
+  const contentRaw = text?.content || 'Watermark'
+  const content = escapeHtml(contentRaw)
+  const fontFamily = text?.fontFamily || 'Arial, Helvetica, sans-serif'
+  const fontFamilyAttr = /[\s,]/.test(fontFamily) ? `'${fontFamily}', Arial, Helvetica, sans-serif` : `${fontFamily}, Arial, Helvetica, sans-serif`
+  const fontFamilyAttrEscaped = escapeHtml(fontFamilyAttr)
+  const PREVIEW_W = 480, PREVIEW_H = 300
+  const scalePreviewToImage = Math.min(PREVIEW_W / (W || PREVIEW_W), PREVIEW_H / (H || PREVIEW_H))
+  const fontSizeRaw = Number(text?.fontSize) || 32
+  const fontSize = Math.max(8, fontSizeRaw / (scalePreviewToImage || 1))
+  const color = text?.color || '#FFFFFF'
+  // 避免与合成阶段重复叠加透明度，这里固定 1，由外层 composite 控制
+  const opacity = 1
+  const fontWeight = (text?.fontWeight ?? 'normal')
+  const fontStyle = (text?.fontStyle ?? 'normal')
+
+  function hexToRgb(hex) {
+    try {
+      if (!hex) return { r: 0, g: 0, b: 0 }
+      let s = String(hex).trim(); if (s.startsWith('#')) s = s.slice(1)
+      if (s.length === 3) s = s.split('').map(c => c + c).join('')
+      const r = parseInt(s.slice(0,2),16), g = parseInt(s.slice(2,4),16), b = parseInt(s.slice(4,6),16)
+      return { r: isFinite(r)?r:0, g: isFinite(g)?g:0, b: isFinite(b)?b:0 }
+    } catch { return { r:0,g:0,b:0 } }
+  }
+  const outlineEnabled = !!text?.outline?.enabled
+  const outlineWidthPreviewPx = Math.max(0, Math.round(Number(text?.outline?.width) || 0))
+  const outlineWidthPx = Math.max(0, Math.round(outlineWidthPreviewPx / (scalePreviewToImage || 1)))
+  const outlineOpacity = Math.max(0, Math.min(1, Number(text?.outline?.opacity) ?? 1))
+  const outlineColorRGB = hexToRgb(text?.outline?.color || '#000000')
+
+  const shadowEnabled = !!text?.shadow?.enabled
+  const shadowOffsetXPreview = Math.round(Number(text?.shadow?.offsetX) || 0)
+  const shadowOffsetYPreview = Math.round(Number(text?.shadow?.offsetY) || 0)
+  const shadowBlurPreview = Math.max(0, Math.round(Number(text?.shadow?.blur) || 0))
+  const shadowOffsetX = shadowEnabled ? (shadowOffsetXPreview / (scalePreviewToImage || 1)) : 0
+  const shadowOffsetY = shadowEnabled ? (shadowOffsetYPreview / (scalePreviewToImage || 1)) : 0
+  const shadowBlur = shadowEnabled ? Math.max(0, shadowBlurPreview / (scalePreviewToImage || 1)) : 0
+  const shadowOpacity = Math.max(0, Math.min(1, Number(text?.shadow?.opacity) ?? 1))
+  const shadowColorRGB = hexToRgb(text?.shadow?.color || '#000000')
+
+  // 估算画布尺寸：足够大，后续用 sharp.trim() 收紧
+  const len = contentRaw.length || 1
+  const pad = Math.round(fontSize * 2)
+  const approxTextW = Math.max(fontSize * len * 0.8, fontSize * 2)
+  const approxTextH = Math.max(Math.round(fontSize * 1.5), fontSize)
+  const expandOutline = outlineEnabled ? outlineWidthPx * 2 : 0
+  const expandShadowX = shadowEnabled ? (Math.abs(shadowOffsetX) + shadowBlur) : 0
+  const expandShadowY = shadowEnabled ? (Math.abs(shadowOffsetY) + shadowBlur) : 0
+  const SW = Math.max(8, Math.ceil(approxTextW + pad * 2 + expandOutline + expandShadowX * 2))
+  const SH = Math.max(8, Math.ceil(approxTextH + pad * 2 + expandOutline + expandShadowY * 2))
+
+  const cx = Math.round(SW / 2)
+  const cy = Math.round(SH / 2)
+
+  const defs = []
+  if (shadowEnabled) {
+    defs.push(`
+  <filter id="wmShadowSprite" x="0" y="0" width="${SW}" height="${SH}" filterUnits="userSpaceOnUse">
+        <feDropShadow dx="${shadowOffsetX}" dy="${shadowOffsetY}" stdDeviation="${shadowBlur}"
+          flood-color="rgb(${shadowColorRGB.r},${shadowColorRGB.g},${shadowColorRGB.b})" flood-opacity="${shadowOpacity}" />
+      </filter>`)
+  }
+  const strokeAttrs = outlineEnabled && outlineWidthPx>0
+    ? `stroke="rgb(${outlineColorRGB.r},${outlineColorRGB.g},${outlineColorRGB.b})" stroke-opacity="${outlineOpacity}" stroke-width="${outlineWidthPx}" paint-order="stroke"`
+    : ''
+  const filterAttr = shadowEnabled ? `filter="url(#wmShadowSprite)"` : ''
+  const syntheticItalic = !!text?.italicSynthetic
+  const skewDeg = Number.isFinite(text?.italicSkewDeg) ? Number(text.italicSkewDeg) : 12
+  const skewCmd = syntheticItalic ? `translate(${cx}, ${cy}) skewX(${-skewDeg}) translate(${-cx}, ${-cy})` : ''
+  const groupTransform = [skewCmd].filter(Boolean).join(' ')
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${SH}" viewBox="0 0 ${SW} ${SH}">
+      ${defs.length?`<defs>${defs.join('\n')}</defs>`:''}
+      ${groupTransform ? `<g transform="${groupTransform}">` : ''}
+        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
+      ${groupTransform ? `</g>` : ''}
+  </svg>`
+}
