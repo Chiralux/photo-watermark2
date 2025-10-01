@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Template, ResizeConfig } from './types/template'
+import { Template, ResizeConfig, SavedTemplateFile, ExportSettings, NamingRule } from './types/template'
 import { wrapFontFamily } from './utils/font'
 import { CompressedPreview } from './components/CompressedPreview'
 import { EstimatedSizeHint } from './components/EstimatedSizeHint'
@@ -16,11 +16,11 @@ declare global {
       preview: { render: (payload: any) => Promise<{ ok: boolean; url?: string; dataUrl?: string; width?: number; height?: number; error?: string }> }
       templates: {
         list: () => Promise<string[]>
-        load: (name: string) => Promise<Template>
-        save: (name: string, data: Template) => Promise<boolean>
+        load: (name: string) => Promise<SavedTemplateFile>
+        save: (name: string, data: SavedTemplateFile) => Promise<boolean>
         delete: (name: string) => Promise<boolean>
-        loadLast: () => Promise<Template | null>
-        saveLast: (data: Template) => Promise<boolean>
+        loadLast: () => Promise<SavedTemplateFile | null>
+        saveLast: (data: SavedTemplateFile) => Promise<boolean>
         getAutoLoadConfig: () => Promise<{ autoLoad: 'last' | 'default'; defaultName: string | null }>
         setAutoLoadConfig: (cfg: { autoLoad: 'last' | 'default'; defaultName: string | null }) => Promise<boolean>
       }
@@ -42,7 +42,7 @@ function App() {
   const [currSize, setCurrSize] = useState<{ w: number; h: number } | null>(null)
   const [outputDir, setOutputDir] = useState<string>('')
   const [format, setFormat] = useState<'png' | 'jpeg'>('png')
-  const [naming, setNaming] = useState<{ prefix?: string; suffix?: string }>({ prefix: 'wm_', suffix: '_watermarked' })
+  const [naming, setNaming] = useState<NamingRule>({ prefix: 'wm_', suffix: '_watermarked' })
   // 导出尺寸调整
   const [resizeMode, setResizeMode] = useState<'original'|'percent'|'custom'>(()=>{
     try {
@@ -141,6 +141,54 @@ function App() {
     layout: { preset: 'center', offsetX: 0, offsetY: 0, allowOverflow: true },
   })
 
+  // 工具：根据当前 UI 状态构造可保存的模板文件对象
+  const buildSavedTemplate = (): SavedTemplateFile => ({
+    version: 1,
+    template: tpl,
+    export: {
+      format,
+      naming,
+      jpegQuality,
+      resize: ((): ResizeConfig => {
+        if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+        if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+        return { mode: 'original' }
+      })(),
+      enableCompressedPreview,
+    }
+  })
+
+  // 工具：应用从磁盘读取的模板（兼容旧版仅有模板的 JSON）
+  const applyLoadedTemplate = (loaded: SavedTemplateFile | Template | null | undefined) => {
+    if (!loaded) return
+    const isWrapped = typeof (loaded as any)?.template === 'object'
+    if (isWrapped) {
+      const obj = loaded as Exclude<SavedTemplateFile, Template>
+      if (obj.template) setTpl(obj.template)
+      const ex = obj.export || ({} as ExportSettings)
+      if (ex.format === 'png' || ex.format === 'jpeg') setFormat(ex.format)
+      if (ex.naming) setNaming({ prefix: ex.naming.prefix, suffix: ex.naming.suffix })
+      if (typeof ex.jpegQuality === 'number' && Number.isFinite(ex.jpegQuality)) setJpegQuality(Math.max(0, Math.min(100, Math.round(ex.jpegQuality))))
+      if (ex.resize) {
+        const r = ex.resize
+        if (r.mode === 'custom') {
+          setResizeMode('custom')
+          if (Number.isFinite(r.width!)) setCustomWidth(Math.max(0, Math.round(Number(r.width))))
+          if (Number.isFinite(r.height!)) setCustomHeight(Math.max(0, Math.round(Number(r.height))))
+        } else if (r.mode === 'percent') {
+          setResizeMode('percent')
+          if (Number.isFinite(r.percent!)) setResizePercent(Math.max(1, Math.round(Number(r.percent))))
+        } else {
+          setResizeMode('original')
+        }
+      }
+      if (typeof ex.enableCompressedPreview === 'boolean') setEnableCompressedPreview(ex.enableCompressedPreview)
+    } else {
+      // 旧格式：直接就是 Template
+      setTpl(loaded as Template)
+    }
+  }
+
   // 启动时加载上次模板 + 字体列表 + 配置
   useEffect(() => {
     (async () => {
@@ -169,15 +217,15 @@ function App() {
         if (cfg.autoLoad === 'default' && cfg.defaultName) {
           try {
             const t = await window.api.templates.load(cfg.defaultName)
-            if (t) setTpl(t)
+            applyLoadedTemplate(t)
           } catch {
             // 回退到 last
             const last = await window.api.templates.loadLast()
-            if (last) setTpl(last)
+            applyLoadedTemplate(last)
           }
         } else {
           const last = await window.api.templates.loadLast()
-          if (last) setTpl(last)
+          applyLoadedTemplate(last)
         }
       } catch {}
     })()
@@ -248,13 +296,13 @@ function App() {
     })
   }, [fontHasItalic])
 
-  // 模板变更时自动保存
+  // 模板或导出相关设置变更时自动保存（带导出设置）
   useEffect(() => {
     const id = setTimeout(() => {
-      window.api.templates.saveLast(tpl).catch(() => {})
+      window.api.templates.saveLast(buildSavedTemplate()).catch(() => {})
     }, 200)
     return () => clearTimeout(id)
-  }, [tpl])
+  }, [tpl, format, naming?.prefix, naming?.suffix, jpegQuality, resizeMode, customWidth, customHeight, resizePercent, enableCompressedPreview])
 
   // 记住导出范围选择
   useEffect(() => {
@@ -454,12 +502,12 @@ function App() {
           <button onClick={async ()=>{
             const name = tplName.trim()
             if (!name) { alert('请输入模板名'); return }
-            await window.api.templates.save(name, tpl)
+            await window.api.templates.save(name, buildSavedTemplate())
             setTplName('')
             const names = await window.api.templates.list().catch(()=>[])
             setTplList(Array.isArray(names)? names : [])
             // 也把当前配置设为最近一次
-            await window.api.templates.saveLast(tpl)
+            await window.api.templates.saveLast(buildSavedTemplate())
             alert('模板已保存')
           }}>保存</button>
         </div>
@@ -472,7 +520,7 @@ function App() {
                   <button onClick={async ()=>{
                     try {
                       const t = await window.api.templates.load(n)
-                      if (t) setTpl(t)
+                      applyLoadedTemplate(t)
                       await window.api.templates.saveLast(t)
                     } catch { alert('加载模板失败') }
                   }}>加载</button>

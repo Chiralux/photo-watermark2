@@ -36,3 +36,23 @@ export type Template = {
 }
 
 export type ResizeConfig = { mode: 'original'|'percent'|'custom'; width?: number; height?: number; percent?: number }
+
+// 命名规则（文件前后缀）
+export type NamingRule = { prefix?: string; suffix?: string }
+
+// 可随模板一起保存的导出相关设置
+export type ExportSettings = {
+  format: 'png' | 'jpeg'
+  naming?: NamingRule
+  jpegQuality?: number
+  resize?: ResizeConfig
+  // UI 辅助项：压缩预览（不影响导出结果，但可作为模板的偏好保存）
+  enableCompressedPreview?: boolean
+}
+
+// 模板文件保存格式（向后兼容旧版只保存 Template 的情况）
+export type SavedTemplateFile = Template | {
+  version?: 1
+  template: Template
+  export?: ExportSettings
+}
