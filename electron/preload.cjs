@@ -16,7 +16,8 @@ contextBridge.exposeInMainWorld('api', {
     setAutoLoadConfig: (cfg) => ipcRenderer.invoke('template:setAutoLoadConfig', cfg)
   },
   preview: {
-    render: (payload) => ipcRenderer.invoke('preview:render', payload)
+    render: (payload) => ipcRenderer.invoke('preview:render', payload),
+    cancel: (jobId) => ipcRenderer.invoke('preview:cancel', jobId)
   },
   systemFonts: {
     list: () => ipcRenderer.invoke('systemFonts:list'),

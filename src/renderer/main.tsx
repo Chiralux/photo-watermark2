@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Template, ResizeConfig, SavedTemplateFile, ExportSettings, NamingRule } from './types/template'
 import { wrapFontFamily } from './utils/font'
@@ -125,6 +125,11 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('enableCompressedPreview', enableCompressedPreview ? '1' : '0') } catch {}
   }, [enableCompressedPreview])
+  // 预览拖拽中：用于暂停压缩预览生成，避免拖动卡顿
+  const [draggingPreview, setDraggingPreview] = useState<boolean>(false)
+  // 冷却：左键按下后额外暂停 250ms，即便迅速松开也不立刻恢复
+  const [cooldownActive, setCooldownActive] = useState<boolean>(false)
+  const cooldownTimerRef = useRef<any>(null)
 
   const [tpl, setTpl] = useState<Template>({
     type: 'text',
@@ -472,7 +477,7 @@ function App() {
             <div className="form-row">
               <label className="left">模式</label>
               <div className="control">
-                <label className="row-inline"><input type="radio" name="autoload" checked={autoLoad==='last'} onChange={()=>setAutoLoad('last')} /> 上次退出时设置</label>
+    <label className="row-inline"><input type="radio" name="autoload" checked={autoLoad==='last'} onChange={()=>setAutoLoad('last')} /> 上次退出时设置</label>
                 <label className="row-inline"><input type="radio" name="autoload" checked={autoLoad==='default'} onChange={()=>setAutoLoad('default')} /> 默认模板</label>
               </div>
             </div>
@@ -609,18 +614,48 @@ function App() {
       <main style={{ flex: 1, display: 'flex' }}>
         <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f7f7' }}>
           {files.length ? (
-            <div style={{ position: 'relative', width: 480, height: 300 }}>
-              <PreviewBox
-                template={tpl}
-                imagePath={files[selected]}
-                onChange={(layout) => setTpl({ ...tpl, layout })}
-                showDebugAnchors={showDebugAnchors}
-                resize={((): ResizeConfig => {
-                  if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
-                  if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
-                  return { mode: 'original' }
-                })()}
-              />
+            <div>
+              <div style={{ position: 'relative', width: 480, height: 300 }}>
+                <PreviewBox
+                  template={tpl}
+                  imagePath={files[selected]}
+                  onChange={(layout) => setTpl({ ...tpl, layout })}
+                  showDebugAnchors={showDebugAnchors}
+                  resize={((): ResizeConfig => {
+                    if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                    if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                    return { mode: 'original' }
+                  })()}
+                  onDraggingChange={(v:boolean)=>{
+                    if (v) {
+                      setDraggingPreview(true)
+                      setCooldownActive(true)
+                      if (cooldownTimerRef.current) { clearTimeout(cooldownTimerRef.current); cooldownTimerRef.current = null }
+                      cooldownTimerRef.current = setTimeout(() => { setCooldownActive(false); cooldownTimerRef.current = null }, 250)
+                    } else {
+                      setDraggingPreview(false)
+                      // 不清除 cooldown：由定时器自然归零，保证“按下后 0.25s 内”都暂停
+                    }
+                  }}
+                />
+              </div>
+              <div style={{ height: 8 }} />
+              <div style={{ width: 480, height: 300 }}>
+                <CompressedPreview
+                  template={tpl}
+                  imagePath={files[selected]}
+                  jpegQuality={jpegQuality}
+                  resize={((): ResizeConfig => {
+                    if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
+                    if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
+                    return { mode: 'original' }
+                  })()}
+                  format={format === 'jpeg' && enableCompressedPreview ? 'jpeg' : 'png'}
+                  w={480}
+                  h={300}
+                  paused={draggingPreview || cooldownActive}
+                />
+              </div>
             </div>
           ) : (
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
@@ -1051,22 +1086,7 @@ function App() {
                 </>
               )}
             </div>
-            {format === 'jpeg' && enableCompressedPreview && files.length>0 && (
-              <div style={{ marginTop: 8, display: 'inline-block', border: '1px dashed #ccc', borderRadius: 4, overflow: 'hidden' }}>
-                <CompressedPreview
-                  template={tpl}
-                  imagePath={files[selected]}
-                  jpegQuality={jpegQuality}
-                  resize={((): ResizeConfig => {
-                    if (resizeMode === 'custom') return { mode: 'custom', width: Math.max(0, Math.round(customWidth||0)) || undefined, height: Math.max(0, Math.round(customHeight||0)) || undefined }
-                    if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
-                    return { mode: 'original' }
-                  })()}
-                  w={220}
-                  h={138}
-                />
-              </div>
-            )}
+            {/* 已统一为底部主预览（根据勾选切换 PNG/JPEG），移除此处小尺寸压缩预览以避免重复 */}
           </div>
           {/* 预计导出尺寸提示 */}
           <EstimatedSizeHint

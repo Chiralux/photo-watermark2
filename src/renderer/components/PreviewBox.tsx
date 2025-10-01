@@ -4,12 +4,13 @@ import { usePreviewGeometry } from '../hooks/usePreviewGeometry'
 import { ImageWatermarkPreview } from './ImageWatermarkPreview'
 import { TextWatermarkPreview } from './TextWatermarkPreview'
 
-export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize }: {
+export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize, onDraggingChange }: {
   template: Template
   imagePath?: string
   onChange: (layout: Template['layout']) => void
   showDebugAnchors?: boolean
   resize?: ResizeConfig
+  onDraggingChange?: (dragging: boolean) => void
 }) {
   const W = 480, H = 300, margin = 16
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
@@ -71,11 +72,14 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   }, [geom.ow, geom.oh, template.layout.preset, (template.layout as any)?.allowOverflow])
 
   function handleDown(e: any) {
+    // 仅响应左键拖拽
+    if (e && typeof e.button === 'number' && e.button !== 0) return
     // 以“当前锚点在预览容器中的绝对位置”为拖拽基准，保持与旧逻辑一致
     dragging.current = { startX: e.clientX, startY: e.clientY, baseX: xAbs, baseY: yAbs }
     // 绑定窗口级事件，允许鼠标移出容器仍然跟踪
     window.addEventListener('mousemove', handleMove as any, { passive: false })
     window.addEventListener('mouseup', handleUp as any, { passive: false, once: false })
+    try { onDraggingChange && onDraggingChange(true) } catch {}
     e.stopPropagation(); e.preventDefault()
   }
   function handleMove(e: any) {
@@ -110,6 +114,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
     window.removeEventListener('mousemove', handleMove as any)
     window.removeEventListener('mouseup', handleUp as any)
     if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    try { onDraggingChange && onDraggingChange(false) } catch {}
   }
 
   return (
