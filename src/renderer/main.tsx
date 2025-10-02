@@ -120,6 +120,9 @@ function App() {
 
   // 文件列表缩略图回退映射：当某文件（如 TIFF）无法用 <img src=file://> 加载时，存储后端生成的 PNG dataURL
   const [thumbOverrides, setThumbOverrides] = useState<Record<string, string>>({})
+  // 导出进度（仅在导出范围为“全部”时显示）
+  const [exportProg, setExportProg] = useState<{ visible: boolean; total: number; processed: number; last?: { inputPath?: string; outputPath?: string } }>({ visible: false, total: 0, processed: 0 })
+  const exportUnsubRef = useRef<null | (() => void)>(null)
 
   // 压缩实时预览：在 JPEG 模式下可选，生成与导出一致的压缩效果
   const [enableCompressedPreview, setEnableCompressedPreview] = useState<boolean>(() => {
@@ -427,8 +430,43 @@ function App() {
       if (resizeMode === 'percent') return { mode: 'percent', percent: Math.max(1, Math.round(resizePercent||0)) }
       return { mode: 'original' }
     })()
-    const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality, resize })
-    alert(`导出完成：${res?.length || 0} 张`)
+    // 若导出“全部”，订阅进度并显示进度条
+    const isAll = exportScope === 'all'
+    if (isAll) {
+      try {
+        // 重置并显示
+        setExportProg({ visible: true, total: tasks.length, processed: 0 })
+        const ep: any = (window as any).exportProgress
+        if (ep?.on && !exportUnsubRef.current) {
+          exportUnsubRef.current = ep.on((payload: any) => {
+            if (!payload || !payload.type) return
+            if (payload.type === 'start') {
+              const tot = Number(payload.total) || tasks.length
+              setExportProg(prev => ({ ...prev, visible: true, total: tot, processed: 0 }))
+            } else if (payload.type === 'progress') {
+              setExportProg(prev => ({
+                ...prev,
+                processed: Math.max(prev.processed, Number(payload.processed) || prev.processed),
+                total: Math.max(prev.total, Number(payload.total) || prev.total),
+                last: { inputPath: payload.inputPath, outputPath: payload.outputPath }
+              }))
+            } else if (payload.type === 'done') {
+              setExportProg(prev => ({ ...prev, processed: Number(payload.processed) || prev.processed, total: Number(payload.total) || prev.total }))
+            }
+          })
+        }
+      } catch {}
+    }
+
+    try {
+      const res = await window.api.exportApplyWatermark({ tasks, outputDir, format, naming, jpegQuality, resize })
+      alert(`导出完成：${res?.length || 0} 张`)
+    } finally {
+      // 清理进度订阅与遮罩
+      try { exportUnsubRef.current && exportUnsubRef.current() } catch {}
+      exportUnsubRef.current = null
+      setExportProg(prev => ({ ...prev, visible: false }))
+    }
   }
 
   // 拖拽导入处理
@@ -1249,8 +1287,28 @@ function App() {
           )}
         </section>
       </main>
+      {/* 导出进度遮罩层 */}
+      {exportProg.visible && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ width: 420, background: '#fff', borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.2)', padding: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>正在导出...</div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+              {Math.min(exportProg.processed, exportProg.total)} / {exportProg.total}
+            </div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${exportProg.total? Math.min(100, Math.round(exportProg.processed/exportProg.total*100)) : 0}%`, background: '#3b82f6', transition: 'width .2s ease' }} />
+            </div>
+            {!!exportProg.last?.inputPath && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#888', wordBreak: 'break-all' }}>
+                {exportProg.last.inputPath}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 createRoot(document.getElementById('root') as HTMLElement).render(<App />)
+

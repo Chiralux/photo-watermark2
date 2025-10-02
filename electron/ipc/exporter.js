@@ -35,6 +35,9 @@ export function registerExportIpc(ipcMain, isDev) {
       return candidate
     }
 
+    const total = Array.isArray(tasks) ? tasks.length : 0
+    let processed = 0
+    try { _evt?.sender?.send?.('export:progress', { type: 'start', total }) } catch {}
     const results = []
     await Promise.all(tasks.map(task => queue.add(async () => {
       const { inputPath, config } = task
@@ -300,7 +303,10 @@ export function registerExportIpc(ipcMain, isDev) {
       }
       await pipeline.withMetadata({ orientation: 1 }).toFile(outputPath)
       results.push({ inputPath, outputPath, ok: true })
+      processed++
+      try { _evt?.sender?.send?.('export:progress', { type: 'progress', processed, total, inputPath, outputPath, ok: true }) } catch {}
     })))
+    try { _evt?.sender?.send?.('export:progress', { type: 'done', processed, total }) } catch {}
     return results
   })
 }

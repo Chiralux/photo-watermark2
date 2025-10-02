@@ -39,3 +39,12 @@ contextBridge.exposeInMainWorld('dragIngest', {
 contextBridge.exposeInMainWorld('imageMeta', {
   get: (path) => ipcRenderer.invoke('image:getMetadata', path)
 })
+
+// 导出进度事件订阅
+contextBridge.exposeInMainWorld('exportProgress', {
+  on: (handler) => {
+    const cb = (_evt, payload) => { try { handler && handler(payload) } catch {} }
+    ipcRenderer.on('export:progress', cb)
+    return () => ipcRenderer.removeListener('export:progress', cb)
+  }
+})
