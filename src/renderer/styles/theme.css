@@ -13,6 +13,12 @@
 	--gap-2: 8px;
 	--gap-3: 12px;
 	--gap-4: 16px;
+
+	/* Scrollbar theme */
+	--scrollbar-thumb: #c9ced6;         /* 默认拇指颜色 */
+	--scrollbar-thumb-hover: #b6bcc7;   /* hover 时拇指 */
+	--scrollbar-thumb-active: #9aa3b2;  /* 拖动时拇指 */
+	--scrollbar-track: transparent;     /* 轨道背景（侧栏为浅色背景即可） */
 }
 
 html, body, #root {
@@ -336,6 +342,51 @@ input[disabled] { background: #f5f5f5; color: var(--text-weak); }
 	padding: 12px;
 	overflow: auto;
 	background: var(--bg);
+}
+
+/* 美化左右侧栏滚动条（Chromium/Electron 基于 WebKit 伪元素） */
+/* 默认隐藏（宽度 0），在 hover 或 .show-scrollbar 状态下显示为细窄条 */
+.sidebar::-webkit-scrollbar,
+.sidebar-left::-webkit-scrollbar {
+	width: 0;                  /* 隐藏竖向滚动条 */
+	height: 0;                 /* 隐藏横向滚动条 */
+}
+
+.sidebar.show-scrollbar::-webkit-scrollbar,
+.sidebar-left.show-scrollbar::-webkit-scrollbar {
+	width: 8px;                /* 显示时的竖向宽度 */
+	height: 8px;               /* 显示时的横向高度（备用） */
+}
+
+.sidebar::-webkit-scrollbar-track,
+.sidebar-left::-webkit-scrollbar-track {
+	background: var(--scrollbar-track);
+	border-radius: 8px;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.sidebar-left::-webkit-scrollbar-thumb {
+	background-color: var(--scrollbar-thumb);
+	border-radius: 8px;
+	border: 2px solid transparent;   /* 留出内边距让拇指更纤细 */
+	background-clip: content-box;    /* 让透明边显示出来形成“细拇指”效果 */
+}
+
+/* hover/active 状态更明显 */
+.sidebar.show-scrollbar::-webkit-scrollbar-thumb,
+.sidebar-left.show-scrollbar::-webkit-scrollbar-thumb {
+	background-color: var(--scrollbar-thumb-hover);
+}
+.sidebar::-webkit-scrollbar-thumb:active,
+.sidebar-left::-webkit-scrollbar-thumb:active {
+	background-color: var(--scrollbar-thumb-active);
+}
+
+/* Firefox：默认隐藏（none），在 hover 或 .show-scrollbar 时使用 thin */
+.sidebar, .sidebar-left { scrollbar-width: none; }
+.sidebar.show-scrollbar, .sidebar-left.show-scrollbar {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 /* 可搜索字体下拉 */

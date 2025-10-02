@@ -439,9 +439,37 @@ function App() {
   }
   const handleDragOver = (e: any) => { e.preventDefault() }
 
+  // 滚动条临时显示逻辑：滚动中添加类名，停止一段时间后移除
+  const leftRef = useRef<HTMLDivElement|null>(null)
+  const rightRef = useRef<HTMLElement|null>(null)
+  useEffect(() => {
+    const pairs: Array<{el: HTMLElement|null, timer: any}> = [
+      { el: leftRef.current, timer: null },
+      { el: rightRef.current, timer: null },
+    ]
+    const onScroll = (entry: {el: HTMLElement|null, timer: any}) => () => {
+      if (!entry.el) return
+      entry.el.classList.add('show-scrollbar')
+      if (entry.timer) clearTimeout(entry.timer)
+      entry.timer = setTimeout(() => {
+        entry.el && entry.el.classList.remove('show-scrollbar')
+        entry.timer = null
+      }, 800)
+    }
+    const unbinds: Array<() => void> = []
+    pairs.forEach(p => {
+      if (p.el) {
+        const h = onScroll(p)
+        p.el.addEventListener('scroll', h, { passive: true })
+        unbinds.push(() => p.el && p.el.removeEventListener('scroll', h))
+      }
+    })
+    return () => { unbinds.forEach(fn => fn()); pairs.forEach(p => p.timer && clearTimeout(p.timer)) }
+  }, [])
+
   return (
     <div onDrop={handleDrop} onDragOver={handleDragOver} style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, Arial' }}>
-      <aside className="sidebar-left">
+      <aside className="sidebar-left" ref={leftRef}>
         <div className="panel" style={{ marginBottom: 12 }}>
           <div className="panel-title">文件</div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -687,7 +715,7 @@ function App() {
             <div style={{ color: '#999' }}>请导入图片或拖拽图片/文件夹到窗口</div>
           )}
         </section>
-        <section className="sidebar">
+  <section className="sidebar" ref={rightRef as any}>
           {/* 顶部模块分栏 */}
           <div className="segmented" style={{ marginBottom: 10, width: '100%' }}>
             <button className={activeTab==='watermark' ? 'active' : ''} onClick={()=> setActiveTab('watermark')}>水印</button>
