@@ -12,7 +12,7 @@
   "dev:electron:5174": "cross-env ELECTRON_ENABLE_LOGGING=1 ELECTRON_ENABLE_STACK_DUMPING=1 VITE_DEV_SERVER_URL=http://localhost:5174 electron . --dev",
     "dev:5174": "concurrently -k -n vite,app -c auto \"vite --host --port 5174 --strictPort\" \"wait-on http://localhost:5174 && cross-env VITE_DEV_SERVER_URL=http://localhost:5174 electron . --dev\"",
     "build:renderer": "vite build",
-    "build": "npm run build:renderer && electron-builder",
+    "build": "npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
     "start": "electron ."
   },
   "author": "",

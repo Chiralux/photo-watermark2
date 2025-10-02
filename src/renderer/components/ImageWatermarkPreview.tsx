@@ -7,6 +7,7 @@
 import React from 'react'
 import type { Template } from '../types/template'
 import { anchorMap, anchorPresets } from '../utils/anchor'
+import { normalizeOpacity } from '../utils/math'
 
 function ImageWatermarkPreviewInner({
   wmUrl,
@@ -76,6 +77,13 @@ function ImageWatermarkPreviewInner({
   const rotation = typeof template.image?.rotation === 'number' && !isNaN(template.image.rotation)
     ? template.image.rotation : 0
 
+  // 仅开发模式：输出透明度调试信息
+  const appliedOpacity = normalizeOpacity(template.image?.opacity ?? 0.6, 0.6)
+  try {
+    const isDev = !!(globalThis as any).__VITE__ || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production')
+    if (isDev) console.debug('[preview:image] opacity raw=', template.image?.opacity, 'normalized=', appliedOpacity)
+  } catch {}
+
   return (
     <img
       src={src || wmUrl}
@@ -89,6 +97,7 @@ function ImageWatermarkPreviewInner({
           }
         } catch {}
       }}
+      title={`图片水印 - 不透明度: ${appliedOpacity}`}
       onMouseDown={onMouseDown}
       style={{
         position: 'absolute',
@@ -99,7 +108,8 @@ function ImageWatermarkPreviewInner({
         height: hDisp,
         transformOrigin,
         transform: `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg)`,
-        opacity: Math.max(0, Math.min(1, Number(template.image?.opacity ?? 0.6))),
+        // 与导出/预览工作线程保持一致：0-1 或 0-100 均可
+        opacity: appliedOpacity,
         cursor: 'move',
         userSelect: 'none',
         pointerEvents: 'auto',
@@ -120,7 +130,8 @@ function areEqual(prev: any, next: any) {
   if ((pi.scaleX||1) !== (ni.scaleX||1)) return false
   if ((pi.scaleY||1) !== (ni.scaleY||1)) return false
   if ((pi.scaleMode||'proportional') !== (ni.scaleMode||'proportional')) return false
-  if ((pi.opacity??0.6) !== (ni.opacity??0.6)) return false
+  // 归一化后比较，保证 28 与 28% 与 0.28 的等价判定
+  if (normalizeOpacity(pi.opacity ?? 0.6, 0.6) !== normalizeOpacity(ni.opacity ?? 0.6, 0.6)) return false
   if ((pi.rotation||0) !== (ni.rotation||0)) return false
   if (prev.template?.layout?.preset !== next.template?.layout?.preset) return false
   return true

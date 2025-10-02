@@ -12,6 +12,7 @@ async function run(payload) {
   try {
     const { inputPath, config, format, jpegQuality, resize } = payload || {}
     const PREVIEW_W = 480, PREVIEW_H = 300
+    const debug = {}
     let baseBuf
     try {
       baseBuf = await sharp(inputPath).rotate().toBuffer()
@@ -53,8 +54,23 @@ async function run(payload) {
       ? baseBuf
       : await sharp(baseBuf).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
 
+    // 归一化不透明度：支持 0-1、0-100 以及 "28%" 字符串
+    const normalizeOpacity = (v) => {
+      let raw = v
+      if (raw == null) return 1
+      if (typeof raw === 'string') {
+        raw = raw.trim()
+        if (raw.endsWith('%')) raw = raw.slice(0, -1)
+      }
+      const n = Number(raw)
+      if (!Number.isFinite(n)) return 1
+      if (n <= 0) return 0
+      if (n <= 1) return n
+      return Math.min(1, n / 100)
+    }
+
     let overlayInput
-    if (config?.type === 'text') {
+  if (config?.type === 'text') {
       const spriteSvg = buildTextSpriteSVG(config.text, targetW, targetH)
       let wmBuf = await sharp(Buffer.from(spriteSvg)).png().toBuffer()
       try { wmBuf = await sharp(wmBuf).trim().toBuffer() } catch {}
@@ -139,7 +155,8 @@ async function run(payload) {
             : rotBuf
           overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
             .png()
-            .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, config.text.opacity ?? 0.6)) }])
+            // 文本不透明度已内嵌在 SVG 精灵的 fill-opacity 中，这里不再额外设置 opacity
+            .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over' }])
             .png()
             .toBuffer()
         } else {
@@ -150,11 +167,12 @@ async function run(payload) {
         let top  = Math.max(0, Math.min(targetH - rh, rawTop))
         overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
           .png()
-          .composite([{ input: rotBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.text.opacity ?? 0.6)) }])
+          // 文本不透明度已内嵌在 SVG 精灵的 fill-opacity 中，这里不再额外设置 opacity
+          .composite([{ input: rotBuf, left, top, blend: 'over' }])
           .png()
           .toBuffer()
       }
-    } else if (config?.type === 'image' && config?.image?.path) {
+  } else if (config?.type === 'image' && config?.image?.path) {
       const wmm = await sharp(config.image.path).metadata()
       const mode = config.image.scaleMode || 'proportional'
       let ww = 1, hh = 1, wmBuf
@@ -202,7 +220,10 @@ async function run(payload) {
         rawLeft = Math.round(pos.left - anchorX)
         rawTop  = Math.round(pos.top  - anchorY)
       }
-      const allowOverflow = (config.layout?.allowOverflow !== false)
+  const allowOverflow = (config.layout?.allowOverflow !== false)
+  // 归一化目标不透明度；某些环境下 per-input opacity 在 composite 中不稳定，这里预烘焙到 alpha 通道
+  const desiredOpacity = normalizeOpacity(config.image.opacity ?? 0.6)
+  try { Object.assign(debug, { type: 'image', opacityRaw: config.image.opacity, opacityNormalized: desiredOpacity }) } catch {}
       if (allowOverflow) {
         const destLeft = Math.max(0, rawLeft)
         const destTop  = Math.max(0, rawTop)
@@ -214,9 +235,13 @@ async function run(payload) {
           const piece = (srcX || srcY || visW !== rw || visH !== rh)
             ? await sharp(rotBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
             : rotBuf
+          // 预烘焙透明度，避免 composite 的 opacity 不一致
+          const pieceWithOpacity = (desiredOpacity < 1)
+            ? await sharp(piece).ensureAlpha().linear([1,1,1, desiredOpacity], [0,0,0,0]).png().toBuffer()
+            : piece
           overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
             .png()
-            .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+            .composite([{ input: pieceWithOpacity, left: destLeft, top: destTop, blend: 'over' }])
             .png()
             .toBuffer()
         } else {
@@ -225,9 +250,12 @@ async function run(payload) {
       } else {
         let left = Math.max(0, Math.min(targetW - rw, rawLeft))
         let top  = Math.max(0, Math.min(targetH - rh, rawTop))
+        const rotWithOpacity = (desiredOpacity < 1)
+          ? await sharp(rotBuf).ensureAlpha().linear([1,1,1, desiredOpacity], [0,0,0,0]).png().toBuffer()
+          : rotBuf
         overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
           .png()
-          .composite([{ input: rotBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, config.image.opacity ?? 0.6)) }])
+          .composite([{ input: rotWithOpacity, left, top, blend: 'over' }])
           .png()
           .toBuffer()
       }
@@ -244,7 +272,7 @@ async function run(payload) {
       composites.push({ input: overlayInput, left: 0, top: 0 })
     }
     let pipeline = composites.length ? sharp(baseForComposite).composite(composites) : sharp(baseForComposite)
-    const fmt = (typeof format === 'string' && format.toLowerCase() === 'jpeg') ? 'jpeg' : 'png'
+  const fmt = (typeof format === 'string' && format.toLowerCase() === 'jpeg') ? 'jpeg' : 'png'
     const q = Math.max(1, Math.min(100, Math.round(Number.isFinite(jpegQuality) ? Number(jpegQuality) : 90)))
     const encoded = fmt === 'jpeg'
       ? await pipeline.jpeg({ quality: q, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer()
@@ -255,14 +283,14 @@ async function run(payload) {
       const pngBuf = (fmt === 'jpeg') ? await sharp(encoded).png().toBuffer() : encoded
       const md = await sharp(pngBuf).metadata().catch(()=>({ width: PREVIEW_W, height: PREVIEW_H }))
       const dataUrl = `data:image/png;base64,${pngBuf.toString('base64')}`
-      return { ok: true, url: dataUrl, width: md?.width || 0, height: md?.height || 0 }
+      return { ok: true, url: dataUrl, width: md?.width || 0, height: md?.height || 0, debug }
     } else {
       const scaledPng = await sharp(encoded)
         .resize({ width: PREVIEW_W, height: PREVIEW_H, fit: 'contain', background: { r:255, g:255, b:255, alpha:1 } })
         .png()
         .toBuffer()
       const dataUrl = `data:image/png;base64,${scaledPng.toString('base64')}`
-      return { ok: true, url: dataUrl, width: PREVIEW_W, height: PREVIEW_H }
+      return { ok: true, url: dataUrl, width: PREVIEW_W, height: PREVIEW_H, debug }
     }
   } catch (e) {
     return { ok: false, error: `[preview-worker] ${String(e?.message || e)}` }

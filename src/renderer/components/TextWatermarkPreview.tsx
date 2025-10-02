@@ -8,6 +8,7 @@ import type { Template } from '../types/template'
 import { transformOriginByPreset } from '../utils/anchor'
 import { hexToRgba } from '../utils/color'
 import { wrapFontFamily } from '../utils/font'
+import { normalizeOpacity } from '../utils/math'
 
 function TextWatermarkPreviewInner({
   geom,
@@ -90,7 +91,8 @@ function TextWatermarkPreviewInner({
         wordBreak: 'keep-all',      // CJK 文本尽量不分词换行
         overflow: 'visible',
         color: template.text?.color,
-        opacity: template.text?.opacity ?? 0.6,
+  // 兼容 0-1 与 0-100 两种输入，保持与导出端一致
+  opacity: normalizeOpacity(template.text?.opacity ?? 0.6, 0.6),
         fontSize: template.text?.fontSize,
         lineHeight: `${template.text?.fontSize || 32}px`,
         fontFamily: wrapFontFamily(template.text?.fontFamily),
@@ -123,7 +125,8 @@ function areEqual(prev: any, next: any) {
   if (pt.fontFamily !== nt.fontFamily) return false
   if ((pt.fontWeight||'normal') !== (nt.fontWeight||'normal')) return false
   if ((pt.fontStyle||'normal') !== (nt.fontStyle||'normal')) return false
-  if ((pt.opacity??0.6) !== (nt.opacity??0.6)) return false
+  // 归一化后比较 (支持 0-1/0-100/% 字符串)
+  if (normalizeOpacity(pt.opacity ?? 0.6, 0.6) !== normalizeOpacity(nt.opacity ?? 0.6, 0.6)) return false
   if (pt.color !== nt.color) return false
   if ((pt.outline?.enabled||false) !== (nt.outline?.enabled||false)) return false
   if (pt.outline?.color !== nt.outline?.color) return false

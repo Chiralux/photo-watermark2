@@ -39,6 +39,16 @@ export function registerExportIpc(ipcMain, isDev) {
     let processed = 0
     try { _evt?.sender?.send?.('export:progress', { type: 'start', total }) } catch {}
     const results = []
+    // 归一化不透明度：支持 0-1 与 0-100 两种输入
+    const normalizeOpacity = (v) => {
+      const n = Number(v)
+      if (!Number.isFinite(n)) return 1
+      if (n <= 0) return 0
+      if (n <= 1) return n
+      // 若传入类似 60、75 视为百分比
+      return Math.min(1, n / 100)
+    }
+
     await Promise.all(tasks.map(task => queue.add(async () => {
       const { inputPath, config } = task
       const { type, text, image, layout } = config
@@ -82,10 +92,14 @@ export function registerExportIpc(ipcMain, isDev) {
         ? baseBuf
         : await sharp(baseBuf).resize({ width: targetW, height: targetH, fit: 'fill' }).toBuffer()
 
-      let overlayInput
-      if (type === 'text') {
-        // 1) 生成文本精灵 PNG，并自动裁掉透明边
-  const spriteSvg = buildTextSpriteSVG(text, targetW, targetH)
+  let overlayInput
+  // 如果是图片水印，记录应在最终合成阶段使用的透明度
+  let overlayFinalOpacity
+  if (type === 'text') {
+    // 1) 生成文本精灵 PNG，并自动裁掉透明边
+    // 注意：text.opacity 只在 composite 阶段生效，spriteSvg 内 fill-opacity 固定为 1，避免重复叠加透明度
+    // 若导出结果字体透明度异常，请检查 text.opacity 是否正确传递到此处
+    const spriteSvg = buildTextSpriteSVG(text, targetW, targetH)
         let wmBuf = await sharp(Buffer.from(spriteSvg)).png().toBuffer()
         try { wmBuf = await sharp(wmBuf).trim().toBuffer() } catch {}
         // 2) 将其当作图片水印，复用图片定位/旋转/越界流程
@@ -176,9 +190,12 @@ export function registerExportIpc(ipcMain, isDev) {
             const piece = (srcX || srcY || visW !== rw || visH !== rh)
               ? await sharp(rotBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
               : rotBuf
+            const op = normalizeOpacity(text?.opacity ?? 0.6)
+            if (isDev) { try { console.log('[export:text] opacity raw=%o normalized=%o', text?.opacity, op) } catch {} }
             overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
               .png()
-              .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, text.opacity ?? 0.6)) }])
+              // 文本不透明度已内嵌在 SVG 精灵的 fill-opacity 中，这里不再额外设置 opacity
+              .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over' }])
               .png()
               .toBuffer()
           } else {
@@ -187,9 +204,12 @@ export function registerExportIpc(ipcMain, isDev) {
         } else {
           const left = Math.max(0, Math.min(targetW - rw, rawLeft))
           const top  = Math.max(0, Math.min(targetH - rh, rawTop))
+          const op = normalizeOpacity(text?.opacity ?? 0.6)
+          if (isDev) { try { console.log('[export:text] opacity raw=%o normalized=%o', text?.opacity, op) } catch {} }
           overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
             .png()
-            .composite([{ input: rotBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, text.opacity ?? 0.6)) }])
+            // 文本不透明度已内嵌在 SVG 精灵的 fill-opacity 中，这里不再额外设置 opacity
+            .composite([{ input: rotBuf, left, top, blend: 'over' }])
             .png()
             .toBuffer()
         }
@@ -249,6 +269,8 @@ export function registerExportIpc(ipcMain, isDev) {
           rawTop  = Math.round(pos.top  - anchorY)
         }
         const allowOverflow = (layout?.allowOverflow !== false)
+        // 记录图片水印最终用于与底图合成时的透明度
+        overlayFinalOpacity = normalizeOpacity(image?.opacity ?? 0.6)
         if (allowOverflow) {
           const destLeft = Math.max(0, rawLeft)
           const destTop  = Math.max(0, rawTop)
@@ -260,9 +282,11 @@ export function registerExportIpc(ipcMain, isDev) {
             const piece = (srcX || srcY || visW !== rw || visH !== rh)
               ? await sharp(rotBuf).extract({ left: srcX, top: srcY, width: visW, height: visH }).toBuffer()
               : rotBuf
+            if (isDev) { try { console.log('[export:image] opacity raw=%o normalized=%o', image?.opacity, overlayFinalOpacity) } catch {} }
             overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
               .png()
-              .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over', opacity: Math.max(0, Math.min(1, image.opacity ?? 0.6)) }])
+              // 此处不再应用全局 opacity，改为在与底图最终合成时传入 per-input opacity
+              .composite([{ input: piece, left: destLeft, top: destTop, blend: 'over' }])
               .png()
               .toBuffer()
           } else {
@@ -271,9 +295,11 @@ export function registerExportIpc(ipcMain, isDev) {
         } else {
           const left = Math.max(0, Math.min(targetW - rw, rawLeft))
           const top  = Math.max(0, Math.min(targetH - rh, rawTop))
+          if (isDev) { try { console.log('[export:image] opacity raw=%o normalized=%o', image?.opacity, overlayFinalOpacity) } catch {} }
           overlayInput = await sharp({ create: { width: targetW, height: targetH, channels: 4, background: { r:0,g:0,b:0,alpha:0 } } })
             .png()
-            .composite([{ input: rotBuf, left, top, blend: 'over', opacity: Math.max(0, Math.min(1, image.opacity ?? 0.6)) }])
+            // 此处不再应用全局 opacity，改为在与底图最终合成时传入 per-input opacity
+            .composite([{ input: rotBuf, left, top, blend: 'over' }])
             .png()
             .toBuffer()
         }
@@ -281,8 +307,31 @@ export function registerExportIpc(ipcMain, isDev) {
       if (!overlayInput) {
         if (isDev) console.warn('[export] No overlay generated for', inputPath, 'type:', type)
       }
+      // 若是图片水印，预先将 overlay 的 alpha 乘以期望透明度，避免个别平台/版本对 per-input opacity 的兼容问题
+      let bakedAlpha = false
+      if (overlayInput && type === 'image' && Number.isFinite(overlayFinalOpacity) && overlayFinalOpacity >= 0 && overlayFinalOpacity <= 1 && overlayFinalOpacity !== 1) {
+        try {
+          overlayInput = await sharp(overlayInput)
+            .ensureAlpha()
+            .linear([1, 1, 1, overlayFinalOpacity], [0, 0, 0, 0])
+            .toBuffer()
+          bakedAlpha = true
+          if (isDev) { try { console.log('[export:image] pre-alpha baked with factor=%o', overlayFinalOpacity) } catch {} }
+        } catch (e) {
+          if (isDev) { try { console.warn('[export:image] pre-alpha multiply failed:', e?.message || e) } catch {} }
+        }
+      }
+
       let composites = []
-      if (overlayInput) composites.push({ input: overlayInput, top: 0, left: 0 })
+      if (overlayInput) {
+        const comp = { input: overlayInput, top: 0, left: 0, blend: 'over' }
+        // 若为图片水印，显式在最终合成时传入 per-input opacity
+        if (type === 'image' && Number.isFinite(overlayFinalOpacity) && !bakedAlpha) {
+          comp.opacity = overlayFinalOpacity
+        }
+        composites.push(comp)
+      }
+      if (isDev) { try { console.log('[export] composites=%o', composites.map(c=>({ hasBuf: !!c.input, top: c.top, left: c.left, blend: c.blend, opacity: c.opacity }))) } catch {} }
       try {
         for (const c of composites) {
           const m = await sharp(c.input).metadata()

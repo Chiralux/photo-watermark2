@@ -9,5 +9,6 @@ mac:
   target: [dmg]
 win:
   target: [nsis]
+  signAndEditExecutable: false
 linux:
   target: [AppImage]

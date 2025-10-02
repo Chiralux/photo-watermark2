@@ -3,6 +3,7 @@ import { Template, ResizeConfig } from '../types/template'
 import { usePreviewGeometry } from '../hooks/usePreviewGeometry'
 import { ImageWatermarkPreview } from './ImageWatermarkPreview'
 import { TextWatermarkPreview } from './TextWatermarkPreview'
+import { normalizeOpacity } from '../utils/math'
 
 export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, resize, onDraggingChange }: {
   template: Template
@@ -187,6 +188,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   <div style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, overflow: 'hidden', pointerEvents: 'auto' }}>
         {template.type === 'image' && wmUrl && (
           <ImageWatermarkPreview
+            key={`${template.image?.path || ''}|${normalizeOpacity(template.image?.opacity ?? 0.6, 0.6)}`}
             wmUrl={wmUrl}
             wmSize={wmSize}
             setWmSize={(s: { w: number; h: number })=> setWmSize(s)}
@@ -197,6 +199,7 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
         )}
         {template.type === 'text' && (
           <TextWatermarkPreview
+            key={`text|${normalizeOpacity(template.text?.opacity ?? 0.6, 0.6)}`}
             geom={{ xDisp: xLocal, yDisp: yLocal }}
             template={template}
             onMouseDown={handleDown}

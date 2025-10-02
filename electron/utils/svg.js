@@ -123,8 +123,15 @@ export function buildTextSpriteSVG(text, W, H) {
   const fontSizeRaw = Number(text?.fontSize) || 32
   const fontSize = Math.max(8, fontSizeRaw / (scalePreviewToImage || 1))
   const color = text?.color || '#FFFFFF'
-  // 避免与合成阶段重复叠加透明度，这里固定 1，由外层 composite 控制
-  const opacity = 1
+  // 直接在 SVG 上应用文字整体不透明度，避免 composite 阶段可能的兼容问题
+  const normalizeOpacity = (v) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return 1
+    if (n <= 0) return 0
+    if (n <= 1) return n
+    return Math.min(1, n / 100)
+  }
+  const opacity = normalizeOpacity(text?.opacity ?? 0.6)
   const fontWeight = (text?.fontWeight ?? 'normal')
   const fontStyle = (text?.fontStyle ?? 'normal')
 
@@ -185,12 +192,13 @@ export function buildTextSpriteSVG(text, W, H) {
   const skewDeg = Number.isFinite(text?.italicSkewDeg) ? Number(text.italicSkewDeg) : 12
   const skewCmd = syntheticItalic ? `translate(${cx}, ${cy}) skewX(${-skewDeg}) translate(${-cx}, ${-cy})` : ''
   const groupTransform = [skewCmd].filter(Boolean).join(' ')
+  const groupOpacityAttr = `opacity="${opacity}"`
 
   return `<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${SH}" viewBox="0 0 ${SW} ${SH}">
       ${defs.length?`<defs>${defs.join('\n')}</defs>`:''}
-      ${groupTransform ? `<g transform="${groupTransform}">` : ''}
-        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" fill="${color}" fill-opacity="${opacity}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
-      ${groupTransform ? `</g>` : ''}
+      ${groupTransform ? `<g transform="${groupTransform}" ${groupOpacityAttr}>` : `<g ${groupOpacityAttr}>`}
+        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" fill="${color}" font-family="${fontFamilyAttrEscaped}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" ${strokeAttrs} ${filterAttr}>${content}</text>
+      </g>
   </svg>`
 }

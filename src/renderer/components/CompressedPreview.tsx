@@ -24,6 +24,10 @@ export function CompressedPreview({ template, imagePath, jpegQuality, resize, w,
       setLoading(true); setErr('')
       try {
         const res = await api.preview.render({ inputPath: imagePath, config: template, format, jpegQuality, resize, jobId })
+        try {
+          const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production'
+          if (isDev && (res as any)?.debug) console.debug('[compressed-preview]', (res as any).debug)
+        } catch {}
         if (!stop) {
           const u = res?.url || res?.dataUrl || ''
           if (res?.ok && u) setUrl(u)
