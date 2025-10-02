@@ -114,24 +114,12 @@ export function registerExportIpc(ipcMain, isDev) {
         let rw = ww, rh = hh
         let rawLeft, rawTop
         // 与文本 SVG 逻辑一致：根据 preset 推导 vAlign 做基线微调，同时支持 baselineAdjust / baselineAdjustX
-        function getVAlignByPreset(preset) {
-          switch (preset) {
-            case 'tl': case 'tc': case 'tr': return 'top'
-            case 'cl': case 'center': case 'cr': return 'middle'
-            case 'bl': case 'bc': case 'br': return 'bottom'
-            default: return 'middle'
-          }
-        }
-        const vAlign = getVAlignByPreset(layout?.preset)
+        // 统一锚点为文本图像中心，基线微调不再受九宫格影响
         const fontSize = Math.max(8, Number(text?.fontSize) || 32)
         const PREVIEW_W = 480, PREVIEW_H = 300
         const scalePreviewToImage = Math.min(PREVIEW_W / (targetW || PREVIEW_W), PREVIEW_H / (targetH || PREVIEW_H))
         const fontSizeImage = Math.max(8, fontSize / (scalePreviewToImage || 1))
         let dyAdjust = 0
-  // 顶部对齐不再额外下移，确保 tl/tc/tr 紧贴上边距
-  if (vAlign === 'top') dyAdjust = 0
-        else if (vAlign === 'middle') dyAdjust = fontSizeImage * 0.40
-        else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSizeImage * 0.2)
         if (Number.isFinite(text?.baselineAdjust)) dyAdjust += Number(text?.baselineAdjust) / (scalePreviewToImage || 1)
         let dxAdjust = 0
         if (Number.isFinite(text?.baselineAdjustX)) dxAdjust += Number(text?.baselineAdjustX) / (scalePreviewToImage || 1)
