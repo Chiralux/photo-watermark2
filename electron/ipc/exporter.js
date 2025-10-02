@@ -2,6 +2,10 @@ import path from 'node:path'
 import { existsSync } from 'node:fs'
 import os from 'node:os'
 import sharp from 'sharp'
+import { promises as fsp } from 'node:fs'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+let bmpjs; try { bmpjs = require('bmp-js') } catch { bmpjs = null }
 import PQueue from 'p-queue'
 import { calcPosition, getImageAnchorFactors } from '../watermark-geometry.js'
 import { buildTextSVG, buildTextSpriteSVG } from '../utils/svg.js'
@@ -35,7 +39,20 @@ export function registerExportIpc(ipcMain, isDev) {
     await Promise.all(tasks.map(task => queue.add(async () => {
       const { inputPath, config } = task
       const { type, text, image, layout } = config
-      const baseBuf = await sharp(inputPath).rotate().toBuffer()
+      let baseBuf
+      try {
+        baseBuf = await sharp(inputPath).rotate().toBuffer()
+      } catch (e) {
+        const ext = String(path.extname(inputPath || '')).toLowerCase()
+        if ((ext === '.bmp' || ext === '.dib') && bmpjs) {
+          const bin = await fsp.readFile(inputPath)
+          const decoded = bmpjs.decode(bin)
+          const raw = { width: decoded.width, height: decoded.height, channels: 4 }
+          baseBuf = await sharp(Buffer.from(decoded.data), { raw }).png().toBuffer()
+        } else {
+          throw e
+        }
+      }
       const baseMeta = await sharp(baseBuf).metadata()
       const W = baseMeta.width || 0
       const H = baseMeta.height || 0

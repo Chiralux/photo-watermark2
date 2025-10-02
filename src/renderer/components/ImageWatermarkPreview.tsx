@@ -23,6 +23,28 @@ function ImageWatermarkPreviewInner({
   template: Template
   onMouseDown: (e: any) => void
 }) {
+  const [src, setSrc] = React.useState(wmUrl as string)
+  React.useEffect(() => {
+    let aborted = false
+    const p = (template?.image?.path || '').toLowerCase()
+    const isTiff = p.endsWith('.tif') || p.endsWith('.tiff')
+    const isBmp = p.endsWith('.bmp')
+    async function ensureSupported() {
+      try {
+        if (isTiff || isBmp) {
+          const api: any = (window as any).api
+          if (api?.preview?.render && template?.image?.path) {
+            const res = await api.preview.render({ inputPath: template.image.path, format: 'png', noScale: true })
+            if (!aborted && res?.ok && res?.url) { setSrc(res.url); return }
+          }
+        }
+      } catch {}
+      if (!aborted) setSrc(wmUrl)
+    }
+    setSrc('')
+    ensureSupported()
+    return () => { aborted = true }
+  }, [wmUrl, template?.image?.path])
   const natW = wmSize?.w || 1
   const natH = wmSize?.h || 1
   const mode = template.image?.scaleMode || 'proportional'
@@ -56,8 +78,17 @@ function ImageWatermarkPreviewInner({
 
   return (
     <img
-      src={wmUrl}
+      src={src || wmUrl}
       onLoad={(e:any)=> setWmSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+      onError={async ()=>{
+        try {
+          const api: any = (window as any).api
+          if (api?.preview?.render && template?.image?.path) {
+            const res = await api.preview.render({ inputPath: template.image.path, format: 'png', noScale: true })
+            if (res?.ok && res?.url) setSrc(res.url)
+          }
+        } catch {}
+      }}
       onMouseDown={onMouseDown}
       style={{
         position: 'absolute',

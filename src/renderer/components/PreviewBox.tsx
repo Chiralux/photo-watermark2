@@ -16,12 +16,40 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [orientedSize, setOrientedSize] = useState<{ w: number; h: number } | null>(null)
   const [wmSize, setWmSize] = useState<{ w: number; h: number } | null>(null)
+  const [baseUrl, setBaseUrl] = useState<string>('')
+  const [baseUrlTried, setBaseUrlTried] = useState<boolean>(false)
 
   const fileUrl = useMemo(() => {
     if (!imagePath) return ''
     if (imagePath.startsWith('file:')) return imagePath
     return 'file:///' + encodeURI(imagePath.replace(/\\/g, '/'))
   }, [imagePath])
+
+  // 初始化/切换图片时，若为浏览器不支持的格式（如 TIFF），改用后端生成的 PNG 预览
+  React.useEffect(() => {
+    let aborted = false
+    setBaseUrl('')
+    setBaseUrlTried(false)
+    if (!imagePath) return
+    const lower = imagePath.toLowerCase()
+  const isTiff = lower.endsWith('.tif') || lower.endsWith('.tiff')
+  const isBmp = lower.endsWith('.bmp')
+    ;(async () => {
+      try {
+        if (isTiff || isBmp) {
+          const api: any = (window as any).api
+          if (api?.preview?.render) {
+            const res = await api.preview.render({ inputPath: imagePath, format: 'png', noScale: true })
+            if (!aborted && res?.ok && res?.url) { setBaseUrl(res.url); setBaseUrlTried(true); return }
+          }
+        }
+        if (!aborted) { setBaseUrl(fileUrl); setBaseUrlTried(true) }
+      } catch {
+        if (!aborted) { setBaseUrl(fileUrl); setBaseUrlTried(true) }
+      }
+    })()
+    return () => { aborted = true }
+  }, [imagePath, fileUrl])
 
   const wmUrl = useMemo(() => {
     const p = template.type === 'image' ? template.image?.path : ''
@@ -119,19 +147,40 @@ export function PreviewBox({ template, imagePath, onChange, showDebugAnchors, re
 
   return (
   <div style={{ width: W, height: H, background: '#fff', border: '1px dashed #ccc', position: 'relative', overflow: 'hidden' }}>
-      {!!fileUrl && (
-        <img src={fileUrl} onLoad={async (e: any) => {
-                setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
-                try {
-                  if ((window as any).imageMeta?.get && imagePath) {
-                    const m = await (window as any).imageMeta.get(imagePath)
-                    const w = m?.orientedWidth || m?.width
-                    const h = m?.orientedHeight || m?.height
-                    if (w && h) setOrientedSize({ w, h })
-                  }
-                } catch {}
+      {!!(baseUrl || fileUrl) && (
+        <img src={baseUrl || fileUrl} onLoad={async (e: any) => {
+                const natW = e.currentTarget.naturalWidth
+                const natH = e.currentTarget.naturalHeight
+                setImgSize({ w: natW, h: natH })
+                // 当使用回退 baseUrl（PNG）时，直接信任实际加载的尺寸，避免与原文件元数据不一致导致的拉伸
+                const usingFallback = !!baseUrl && baseUrl !== fileUrl
+                if (!usingFallback) {
+                  try {
+                    if ((window as any).imageMeta?.get && imagePath) {
+                      const m = await (window as any).imageMeta.get(imagePath)
+                      const w = m?.orientedWidth || m?.width
+                      const h = m?.orientedHeight || m?.height
+                      if (w && h) setOrientedSize({ w, h })
+                      else setOrientedSize({ w: natW, h: natH })
+                    } else {
+                      setOrientedSize({ w: natW, h: natH })
+                    }
+                  } catch { setOrientedSize({ w: natW, h: natH }) }
+                } else {
+                  setOrientedSize({ w: natW, h: natH })
+                }
               }
             }
+            onError={async () => {
+              // 若直接 file:// 失败（例如 TIFF），尝试后端生成 PNG 预览
+              try {
+                const api: any = (window as any).api
+                if (api?.preview?.render && imagePath) {
+                  const res = await api.preview.render({ inputPath: imagePath, format: 'png', noScale: true })
+                  if (res?.ok && res?.url) setBaseUrl(res.url)
+                }
+              } catch {}
+            }}
             style={{ position: 'absolute', left: geom.ox, top: geom.oy, width: geom.dw, height: geom.dh, userSelect: 'none', pointerEvents: 'none', imageOrientation: 'from-image' as any }} />
       )}
       {/* 水印包裹在与底图一致位置/尺寸的裁剪容器中，越界部分将被裁掉，与导出/压缩预览一致 */}

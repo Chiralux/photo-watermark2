@@ -1,5 +1,10 @@
 import sharp from 'sharp'
 import { parentPort, workerData } from 'worker_threads'
+import path from 'node:path'
+import { promises as fsp } from 'node:fs'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+let bmpjs; try { bmpjs = require('bmp-js') } catch { bmpjs = null }
 import { calcPosition, getImageAnchorFactors } from '../watermark-geometry.js'
 import { buildTextSpriteSVG } from '../utils/svg.js'
 
@@ -7,7 +12,21 @@ async function run(payload) {
   try {
     const { inputPath, config, format, jpegQuality, resize } = payload || {}
     const PREVIEW_W = 480, PREVIEW_H = 300
-    const baseBuf = await sharp(inputPath).rotate().toBuffer()
+    let baseBuf
+    try {
+      baseBuf = await sharp(inputPath).rotate().toBuffer()
+    } catch (e) {
+      // Fallback for some BMP variants unsupported by libvips
+      const ext = String(path.extname(inputPath || '')).toLowerCase()
+      if ((ext === '.bmp' || ext === '.dib') && bmpjs) {
+        const bin = await fsp.readFile(inputPath)
+        const decoded = bmpjs.decode(bin)
+        const raw = { width: decoded.width, height: decoded.height, channels: 4 }
+        baseBuf = await sharp(Buffer.from(decoded.data), { raw }).png().toBuffer()
+      } else {
+        throw e
+      }
+    }
     const baseMeta = await sharp(baseBuf).metadata()
     const W = baseMeta.width || 0
     const H = baseMeta.height || 0
@@ -230,12 +249,21 @@ async function run(payload) {
     const encoded = fmt === 'jpeg'
       ? await pipeline.jpeg({ quality: q, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer()
       : await pipeline.png().toBuffer()
-    const scaledPng = await sharp(encoded)
-      .resize({ width: PREVIEW_W, height: PREVIEW_H, fit: 'contain', background: { r:255, g:255, b:255, alpha:1 } })
-      .png()
-      .toBuffer()
-    const dataUrl = `data:image/png;base64,${scaledPng.toString('base64')}`
-    return { ok: true, url: dataUrl, width: PREVIEW_W, height: PREVIEW_H }
+    // 允许调用方跳过固定尺寸缩放，以保持原图比例（用于前端基础预览的 TIFF 回退）
+    const noScale = !!(payload && payload.noScale)
+    if (noScale) {
+      const pngBuf = (fmt === 'jpeg') ? await sharp(encoded).png().toBuffer() : encoded
+      const md = await sharp(pngBuf).metadata().catch(()=>({ width: PREVIEW_W, height: PREVIEW_H }))
+      const dataUrl = `data:image/png;base64,${pngBuf.toString('base64')}`
+      return { ok: true, url: dataUrl, width: md?.width || 0, height: md?.height || 0 }
+    } else {
+      const scaledPng = await sharp(encoded)
+        .resize({ width: PREVIEW_W, height: PREVIEW_H, fit: 'contain', background: { r:255, g:255, b:255, alpha:1 } })
+        .png()
+        .toBuffer()
+      const dataUrl = `data:image/png;base64,${scaledPng.toString('base64')}`
+      return { ok: true, url: dataUrl, width: PREVIEW_W, height: PREVIEW_H }
+    }
   } catch (e) {
     return { ok: false, error: `[preview-worker] ${String(e?.message || e)}` }
   }

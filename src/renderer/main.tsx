@@ -118,6 +118,9 @@ function App() {
     }
   })
 
+  // 文件列表缩略图回退映射：当某文件（如 TIFF）无法用 <img src=file://> 加载时，存储后端生成的 PNG dataURL
+  const [thumbOverrides, setThumbOverrides] = useState<Record<string, string>>({})
+
   // 压缩实时预览：在 JPEG 模式下可选，生成与导出一致的压缩效果
   const [enableCompressedPreview, setEnableCompressedPreview] = useState<boolean>(() => {
     try { return localStorage.getItem('enableCompressedPreview') === '1' } catch { return false }
@@ -482,6 +485,7 @@ function App() {
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {files.map((f: string, i: number) => {
             const fileUrl = f.startsWith('file:') ? f : ('file:///' + encodeURI(f.replace(/\\/g, '/')))
+            const thumbSrc = thumbOverrides[f] || fileUrl
             const name = f.split(/\\/).pop()
             return (
               <li
@@ -498,11 +502,22 @@ function App() {
                 title={f}
               >
                 <img
-                  src={fileUrl}
+                  src={thumbSrc}
                   alt={name}
                   width={48}
                   height={48}
                   loading="lazy"
+                  onError={async (_e:any)=>{
+                    try {
+                      const api: any = (window as any).api
+                      if (api?.preview?.render) {
+                        const res = await api.preview.render({ inputPath: f, format: 'png', noScale: true })
+                        if (res?.ok && res?.url) {
+                          setThumbOverrides(prev => ({ ...prev, [f]: res.url }))
+                        }
+                      }
+                    } catch {}
+                  }}
                   style={{
                     width: 48,
                     height: 48,
