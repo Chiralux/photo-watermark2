@@ -28,7 +28,17 @@ export function calcPosition(layout, W, H, clampInside = true) {
   return { left, top }
 }
 
-export function getImageAnchorFactors(_preset) {
-  // 统一以“水印中心(0.5,0.5)”作为锚点，无论九宫格预设为何
-  return { ax: 0.5, ay: 0.5 }
+export function getImageAnchorFactors(preset) {
+  switch (preset) {
+    case 'tl': return { ax: 0,   ay: 0 }
+    case 'tc': return { ax: 0.5, ay: 0 }
+    case 'tr': return { ax: 1,   ay: 0 }
+    case 'cl': return { ax: 0,   ay: 0.5 }
+    case 'center': return { ax: 0.5, ay: 0.5 }
+    case 'cr': return { ax: 1,   ay: 0.5 }
+    case 'bl': return { ax: 0,   ay: 1 }
+    case 'bc': return { ax: 0.5, ay: 1 }
+    case 'br': return { ax: 1,   ay: 1 }
+    default: return { ax: 0.5, ay: 0.5 }
+  }
 }

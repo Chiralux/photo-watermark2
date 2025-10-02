@@ -679,26 +679,25 @@ function App() {
                    <span>{n}</span>
                    <span style={{ display: 'inline-flex', gap: 6 }}>
                      <button className="btn sm outline-primary" title="加载此模板" onClick={async ()=>{
-                    try {
-                      const t = await window.api.templates.load(n)
-                      applyLoadedTemplate(t)
-                      await window.api.templates.saveLast(t)
-                    } catch { alert('加载模板失败') }
+                      try {
+                        const t = await window.api.templates.load(n)
+                        applyLoadedTemplate(t)
+                        await window.api.templates.saveLast(t)
+                      } catch { alert('加载模板失败') }
                      }}>
                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                          <path d="M12 5v14M5 12h14" />
                        </svg>
                        <span style={{ marginLeft: 6 }}>加载</span>
                      </button>
-                     <button className="btn sm outline-danger" title={`删除模板 “${n}”`} onClick={async ()=>{
-                    const ok = confirm(`删除模板 “${n}”？`)
-                    if (!ok) return
-                    const ok2 = await window.api.templates.delete(n)
-                    if (!ok2) { alert('删除失败'); return }
-                    const names = await window.api.templates.list().catch(()=>[])
-                    setTplList(Array.isArray(names)? names : [])
-                    // 若删除的是当前默认模板，清空选择
-                    if (n === defaultTplName) setDefaultTplName('')
+                     <button className="btn sm outline-danger" title="删除此模板" onClick={async ()=>{
+                      try {
+                        const ok = await window.api.templates.delete(n)
+                        if (!ok) { alert('删除失败'); return }
+                        const names = await window.api.templates.list().catch(()=>[])
+                        setTplList(Array.isArray(names)? names : [])
+                        if (n === defaultTplName) setDefaultTplName('')
+                      } catch { alert('删除失败') }
                      }}>
                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                          <polyline points="3 6 5 6 21 6" />
@@ -708,7 +707,7 @@ function App() {
                        </svg>
                        <span style={{ marginLeft: 6 }}>删除</span>
                      </button>
-                </span>
+                   </span>
               </li>
             )) : (
               <li style={{ padding: 8, color: '#888' }}>暂无模板</li>
@@ -1135,7 +1134,15 @@ function App() {
                 <button
                   key={p.key}
                   className={`cell ${tpl.layout.preset===p.key ? 'active' : ''}`}
-                  onClick={() => setTpl({ ...tpl, layout: { ...tpl.layout, preset: p.key, offsetX: 0, offsetY: 0 } })}
+                  onClick={() => {
+                    // 切换九宫格预设：重置偏移，并将旋转角度重置为 0
+                    setTpl(prev => ({
+                      ...prev,
+                      layout: { ...prev.layout, preset: p.key, offsetX: 0, offsetY: 0 },
+                      text: (prev.type === 'text' && prev.text) ? { ...prev.text, rotation: 0 } : prev.text,
+                      image: (prev.type === 'image' && prev.image) ? { ...prev.image, rotation: 0 } : prev.image,
+                    }))
+                  }}
                   title={p.label}
                 />
               ))}

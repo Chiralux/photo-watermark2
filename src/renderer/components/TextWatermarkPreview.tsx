@@ -21,9 +21,32 @@ function TextWatermarkPreviewInner({
   const rotation = typeof template.text?.rotation === 'number' && !isNaN(template.text.rotation)
     ? template.text.rotation : 0
 
-  // 统一以中心为锚点：不再基于九宫格进行额外上/中/下的基线偏移
+  // 与导出端 svg 文本逻辑对齐：根据九宫格确定 vAlign，并做基线/水平微调
+  function getVAlignByPreset(preset: string): 'top'|'middle'|'bottom' {
+    switch (preset) {
+      case 'tl':
+      case 'tc':
+      case 'tr':
+        return 'top'
+      case 'cl':
+      case 'center':
+      case 'cr':
+        return 'middle'
+      case 'bl':
+      case 'bc':
+      case 'br':
+        return 'bottom'
+      default:
+        return 'middle'
+    }
+  }
+  const vAlign = getVAlignByPreset(template.layout.preset)
   const fontSize = Number(template.text?.fontSize || 32)
   let dyAdjust = 0
+  // 顶部对齐时不再额外下移，确保 tl/tc/tr 紧贴上边距
+  if (vAlign === 'top') dyAdjust = 0
+  else if (vAlign === 'middle') dyAdjust = fontSize * 0.40
+  else if (vAlign === 'bottom') dyAdjust = -Math.round(fontSize * 0.2)
 
   // 预览端直接使用像素，不需要缩放换算
   if (Number.isFinite(template.text?.baselineAdjust)) {
@@ -34,8 +57,17 @@ function TextWatermarkPreviewInner({
     dxAdjust += Number(template.text!.baselineAdjustX)
   }
 
-  // 锚点统一在元素中心，因此恒定使用 -50%/-50% 的百分比平移
-  const translate = 'translate(-50%, -50%)'
+  const translate = (
+    template.layout.preset === 'tl' ? 'translate(0, 0)' :
+    template.layout.preset === 'tc' ? 'translate(-50%, 0)' :
+    template.layout.preset === 'tr' ? 'translate(-100%, 0)' :
+    template.layout.preset === 'cl' ? 'translate(0, -50%)' :
+    template.layout.preset === 'center' ? 'translate(-50%, -50%)' :
+    template.layout.preset === 'cr' ? 'translate(-100%, -50%)' :
+    template.layout.preset === 'bl' ? 'translate(0, -100%)' :
+    template.layout.preset === 'bc' ? 'translate(-50%, -100%)' :
+    'translate(-100%, -100%)'
+  )
   const skew = template.text?.italicSynthetic ? ` skewX(${-(template.text?.italicSkewDeg ?? 12)}deg)` : ''
   // 先做锚点百分比平移，再做像素级基线/水平微调，最后旋转/仿斜
   const pixelAdjust = (dxAdjust !== 0 || dyAdjust !== 0)
