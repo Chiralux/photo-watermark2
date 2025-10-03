@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: Build (electron-builder)
-        run: npm run build
+        run: npx electron-builder --win --publish=never
         env:
           # 确保 electron-builder 不尝试发布
           GH_TOKEN: ''
