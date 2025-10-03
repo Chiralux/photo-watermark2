@@ -1,6 +1,6 @@
 {
   "name": "photo-watermark2",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "Cross-platform desktop app to add text/image watermarks to photos",
   "main": "electron/main.js",
