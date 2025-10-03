@@ -1,14 +1,34 @@
 appId: com.example.photo-watermark2
 productName: Photo Watermark
+directories:
+  output: release
+compression: maximum
+asar: true
+asarUnpack:
+  - "**/*.node"
 files:
   - dist/**
   - electron/**
   - package.json
+  # 排除调试与误产物，避免嵌套打包与体积膨胀
+  - "!dist/builder-debug.yml"
+  - "!dist/win-unpacked/**"
+  - "!dist/win-ia32-unpacked/**"
+  - "!dist/linux-unpacked/**"
+  - "!dist/mac*/**"
+  - "!dist/**/*.map"
 extraResources: []
 mac:
   target: [dmg]
 win:
-  target: [nsis]
+  target: [nsis, zip]
   signAndEditExecutable: false
+  artifactName: Photo-Watermark-${version}-${os}-${arch}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 linux:
   target: [AppImage]
