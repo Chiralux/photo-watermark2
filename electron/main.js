@@ -51,8 +51,12 @@ function createWindow() {
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
     mainWindow.loadURL(devUrl)
   } else {
-    const indexPath = url.pathToFileURL(path.join(__dirname, '..', 'dist', 'renderer', 'index.html')).toString()
-    mainWindow.loadURL(indexPath)
+    const indexHtml = path.join(__dirname, '..', 'dist', 'renderer', 'index.html')
+    const indexPath = url.pathToFileURL(indexHtml).toString()
+    console.log('[main] loading index:', indexPath)
+    mainWindow.loadURL(indexPath).catch(err => {
+      console.error('[main] loadURL error:', err)
+    })
   }
 }
 

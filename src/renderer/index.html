@@ -2,7 +2,22 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:5173 ws://localhost:5173; img-src 'self' data: filesystem: file: http://localhost:5173; style-src 'self' 'unsafe-inline'; script-src 'self' http://localhost:5173; connect-src 'self' http://localhost:5173 ws://localhost:5173;" />
+    <!--
+      CSP 说明：
+      - 生产环境加载方式为 file://，需允许从本地文件系统加载构建产物（JS/CSS/图片）。
+      - 开发环境使用 Vite 开发服务器，需要放行 http://localhost:5173 与对应 ws 连接。
+      - 出于 Electron 渲染进程兼容性，允许 'unsafe-inline'（样式）与 'unsafe-eval'（部分第三方库可能需要）。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self' data: blob: filesystem: file:;
+      img-src 'self' data: blob: filesystem: file: http://localhost:5173;
+      style-src 'self' 'unsafe-inline' data: blob: filesystem: file:;
+      script-src 'self' 'unsafe-eval' http://localhost:5173 data: blob: filesystem: file:;
+      connect-src 'self' data: blob: filesystem: file: http://localhost:5173 ws://localhost:5173;
+      font-src 'self' data: blob: filesystem: file:;
+      media-src 'self' data: blob: filesystem: file:;
+      frame-src 'self';
+    " />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Photo Watermark</title>
   </head>
