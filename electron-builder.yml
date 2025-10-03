@@ -2,6 +2,7 @@ appId: com.example.photo-watermark2
 productName: Photo Watermark
 directories:
   output: release
+publish: "never"
 compression: maximum
 asar: true
 asarUnpack:

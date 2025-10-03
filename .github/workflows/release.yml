@@ -32,6 +32,10 @@ jobs:
 
       - name: Build (electron-builder)
         run: npm run build
+        env:
+          # 确保 electron-builder 不尝试发布
+          GH_TOKEN: ''
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Compute artifact list
         id: artifacts
@@ -43,8 +47,11 @@ jobs:
             'release/latest.yml',
             'release/Photo-Watermark-*.zip'
           )
+          $expanded = $files | ForEach-Object { Get-ChildItem -Path $_ -ErrorAction SilentlyContinue } | Select-Object -ExpandProperty FullName
+          if(-not $expanded){ throw 'No artifacts were found under release/*' }
+          Write-Host "Artifacts:"; $expanded | ForEach-Object { Write-Host " - $_" }
           echo "files<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          $files -join "\n" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $expanded -join "`n" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           echo "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Create GitHub Release and upload assets
